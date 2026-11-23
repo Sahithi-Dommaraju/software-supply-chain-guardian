@@ -32,7 +32,8 @@ def run(state: dict) -> tuple[dict, dict]:
 
     fan_in = Counter(e["target"] for e in state["edges"])
     fan_out = Counter(e["source"] for e in state["edges"])
-    nodes = [{"id": root, "label": state["repo_name"], "type": "repo", "depth": 0}]
+    repo_label = state["repo_url"].removeprefix("https://github.com/").removesuffix(".git")
+    nodes = [{"id": root, "label": repo_label, "type": "repo", "depth": 0}]
     nodes += [{"id": p["id"], "label": p.get("name") or p["path"], "type": "project", "depth": 1,
                "ecosystem": p["ecosystem"]} for p in state["projects"]]
     for c in state["components"]:
