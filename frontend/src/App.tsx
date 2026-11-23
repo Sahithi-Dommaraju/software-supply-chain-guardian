@@ -4,6 +4,9 @@ import { AgentPipeline, Overview } from './Overview'
 import GraphView, { type Theme } from './GraphView'
 import SbomTable from './SbomTable'
 import Inspection from './Inspection'
+import Vulnerabilities from './Vulnerabilities'
+import Suspicious from './Suspicious'
+import Report from './Report'
 
 const TABS = [
   ['overview', 'Overview'],
@@ -16,11 +19,6 @@ const TABS = [
 ] as const
 type Tab = (typeof TABS)[number][0]
 
-const PLANNED: Record<string, string> = {
-  vulnerability: 'Matches every SBOM component against OSV / GitHub advisories (OSV-Scanner or Trivy) and shows advisory ID, severity, affected range and fixed version.',
-  change_detection: 'Flags non-CVE supply-chain risks: unexpected or typosquatted dependencies, install scripts, modified lockfiles, unpinned images and CI actions, with diff evidence.',
-  evidence: 'Correlates both detection branches with the dependency graph into evidence bundles: verified facts, inference and unknowns, plus the Day 1 report.',
-}
 
 const shortRepo = (url: string) => url.replace('https://github.com/', '')
 const when = (t: number) => new Date(t * 1000).toLocaleString()
@@ -154,6 +152,8 @@ function ScanPage({ id, theme }: { id: string; theme: Theme }) {
   if (missing) return <div className="card">Scan not found.</div>
   if (!scan) return <div className="card">Loading…</div>
   const co = scan.results.checkout
+  const labels = new Map(scan.results.graph?.nodes.map((n) => [n.id, n.label]) ?? [])
+  const label = (id: string) => labels.get(id) ?? id.replace(/^project:/, '')
 
   return (
     <div className="scan">
@@ -196,15 +196,15 @@ function ScanPage({ id, theme }: { id: string; theme: Theme }) {
         {tab === 'inspection' && (scan.results.inspection
           ? <Inspection data={scan.results.inspection} repoUrl={scan.repo_url} sha={scan.commit_sha} />
           : <Waiting agent={scan.agents.inspection} />)}
-        {tab in PLANNED && (
-          <div className="card planned-panel">
-            <div className="eyebrow">{scan.agents[tab].name} · planned</div>
-            <h2>Not built yet</h2>
-            <p>{PLANNED[tab]}</p>
-            <p className="muted">This agent plugs into the same pipeline after the Container & CI/CD step. Until it runs, this
-              scan makes no claim about {tab === 'vulnerability' ? 'known vulnerabilities' : 'these risks'}.</p>
-          </div>
-        )}
+        {tab === 'vulnerability' && (scan.results.vulnerability
+          ? <Vulnerabilities scanId={scan.id} data={scan.results.vulnerability} label={label} />
+          : <Waiting agent={scan.agents.vulnerability} />)}
+        {tab === 'change_detection' && (scan.results.change_detection
+          ? <Suspicious data={scan.results.change_detection} label={label} repoUrl={scan.repo_url} sha={scan.commit_sha} />
+          : <Waiting agent={scan.agents.change_detection} />)}
+        {tab === 'evidence' && (scan.results.evidence
+          ? <Report scanId={scan.id} data={scan.results.evidence} repoUrl={scan.repo_url} sha={scan.commit_sha} />
+          : <Waiting agent={scan.agents.evidence} />)}
       </div>
     </div>
   )
@@ -213,6 +213,7 @@ function ScanPage({ id, theme }: { id: string; theme: Theme }) {
 function Waiting({ agent }: { agent: Scan['agents'][string] }) {
   const msg = agent.status === 'failed' ? `Failed: ${agent.error}`
     : agent.status === 'skipped' ? 'Skipped because an earlier agent failed.'
+    : agent.status === 'planned' ? `${agent.name} did not exist when this scan ran. Start a new scan to get its results; until then this scan makes no claim here.`
     : `${agent.name} is ${agent.status}…`
   return <div className="card muted">{msg}</div>
 }

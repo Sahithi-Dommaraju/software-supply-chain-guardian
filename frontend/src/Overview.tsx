@@ -36,7 +36,7 @@ function Kpi({ label, value, hint }: { label: string; value: number | string | u
 }
 
 export function Overview({ scan }: { scan: Scan }) {
-  const { discovery: d, graph: g, sbom, inspection: ins, checkout } = scan.results
+  const { discovery: d, graph: g, sbom, inspection: ins, checkout, vulnerability: v, change_detection: cd } = scan.results
   const hist = g ? Object.entries(g.stats.depth_histogram) : []
   const maxBar = Math.max(1, ...hist.map(([, n]) => n))
   const label = (id: string) => g?.nodes.find((n) => n.id === id)?.label ?? id
@@ -52,6 +52,8 @@ export function Overview({ scan }: { scan: Scan }) {
         <Kpi label="Install scripts" value={d?.stats.install_scripts} hint="packages that run code on install" />
         <Kpi label="CI/container warnings" value={ins?.stats.warnings} />
         <Kpi label="SBOM" value={sbom ? `CDX ${sbom.spec_version}` : undefined} />
+        <Kpi label="Critical / high advisories" value={v ? `${v.counts.critical} / ${v.counts.high}` : undefined} hint={v ? `${v.findings.length} advisories on ${v.packages_affected} packages` : undefined} />
+        <Kpi label="Suspicious-pattern findings" value={cd?.findings.length} hint={cd ? `${cd.counts.high} high, ${cd.counts.medium} medium` : undefined} />
       </div>
 
       {d && (
