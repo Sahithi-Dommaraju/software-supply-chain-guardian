@@ -20,6 +20,7 @@ const PALETTES = {
   },
 }
 type Palette = (typeof PALETTES)['dark']
+const REL_SIZE = 4
 const idOf = (x: string | FNode) => (typeof x === 'string' ? x : x.id)
 
 function nodeColor(n: FNode, COLORS: Palette) {
@@ -86,6 +87,8 @@ export default function GraphView({ graph, components, theme }: { graph: G; comp
     }
   }
 
+  const nodeVal = (n: FNode) =>
+    n.type === 'repo' ? 14 : n.type === 'project' ? 8 : onPath.has(n.id) ? 5 : 1 + Math.min(4, (n.dependents ?? 0) / 8)
   const c = selected ? byId.get(selected) : undefined
   return (
     <div className="graph-layout">
@@ -121,7 +124,15 @@ export default function GraphView({ graph, components, theme }: { graph: G; comp
             backgroundColor="rgba(0,0,0,0)"
             nodeId="id"
             nodeLabel={(n: FNode) => n.label}
-            nodeVal={(n: FNode) => (n.type === 'repo' ? 14 : n.type === 'project' ? 8 : onPath.has(n.id) ? 5 : 1 + Math.min(4, (n.dependents ?? 0) / 8))}
+            nodeVal={nodeVal}
+            nodeRelSize={REL_SIZE}
+            // Hit area never smaller than ~8 screen px, so tiny nodes stay clickable when zoomed out.
+            nodePointerAreaPaint={(n: FNode, color, ctx, scale) => {
+              ctx.fillStyle = color
+              ctx.beginPath()
+              ctx.arc(n.x!, n.y!, Math.max(Math.sqrt(nodeVal(n)) * REL_SIZE, 8 / scale), 0, 2 * Math.PI)
+              ctx.fill()
+            }}
             nodeColor={(n: FNode) => (onPath.has(n.id) ? COLORS.path : nodeColor(n, COLORS))}
             nodeCanvasObjectMode={() => 'after'}
             nodeCanvasObject={(n: FNode, ctx, scale) => {
@@ -152,7 +163,7 @@ export default function GraphView({ graph, components, theme }: { graph: G; comp
         </div>
       </div>
 
-      <aside className="graph-side card">
+      <aside className={`graph-side card ${selected ? 'open' : ''}`}>
         {!selected && (
           <div className="muted">
             <h2>Component details</h2>
@@ -162,7 +173,10 @@ export default function GraphView({ graph, components, theme }: { graph: G; comp
         )}
         {selected && (
           <>
-            <div className="eyebrow">{c ? (c.direct ? 'Direct dependency' : 'Transitive dependency') : label(selected)}</div>
+            <div className="side-head">
+              <div className="eyebrow">{c ? (c.direct ? 'Direct dependency' : 'Transitive dependency') : label(selected)}</div>
+              <button className="close" onClick={() => setSelected(null)} aria-label="Close details">×</button>
+            </div>
             <h2 className="mono">{label(selected)}</h2>
             <h3>Introduced via</h3>
             <ol className="path">
