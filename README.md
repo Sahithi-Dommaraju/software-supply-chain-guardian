@@ -11,13 +11,13 @@ output shows up on the dashboard.
 | 3 | SBOM | built | Merged CycloneDX 1.5 JSON (purls, scopes, licenses, hashes, dependency tree), cross-checked against `npm sbom` |
 | 4 | Dependency graph | built | Nodes/edges, shortest introduction path per component, depth histogram, most depended-on packages |
 | 5 | Container & CI/CD inspection | built | Dockerfile base-image pinning and risky `RUN`s; GitHub Actions pinning, `pull_request_target`, `write-all`, script injection; all with file:line |
-| 6 | Vulnerability detection | planned | OSV-Scanner / Trivy against the SBOM |
-| 7 | Suspicious-change detection | planned | Non-CVE anomalies with diff evidence |
-| 8 | Investigation & evidence | planned | Evidence bundles and the Day 1 report |
+| 6 | Vulnerability detection | built | OSV-Scanner on each lockfile (online, or offline with `GUARDIAN_OSV_OFFLINE=1`); CVSS band or advisory label, fixed version, introduction path; Trivy cross-check when installed |
+| 7 | Suspicious-change detection | built | Install scripts, non-registry origins, typosquat lookalikes, missing lockfiles, unpinned Actions/base images, risky workflows, Dockerfile installs |
+| 8 | Investigation & evidence | built | Evidence bundle per finding (facts / inference / unknowns, initial risk), Day 1 checklist, `report.md` + `report.json` |
 
 No repository code runs during a scan. Nothing is cloned until a URL is submitted.
 
-Dashboard: React + TypeScript with light and dark themes (toggle in the top bar), live per-agent status,
+Dashboard: React + TypeScript with light and dark themes (toggle in the top bar), live per-agent status, vulnerability and suspicious-pattern tables, an evidence report with Markdown/JSON download,
 an interactive dependency graph (hover tooltips, neighbour highlighting, labels on zoom, click for details
 and the introduction path), a filterable SBOM table with download, and container/CI observations linked
 to file:line.
@@ -26,7 +26,9 @@ Full explanation of every agent and every dashboard element: [docs/DASHBOARD_GUI
 
 ## Run
 
-Needs Python 3.11+, Node 20+ (with npm 9.5+ for `npm sbom`), and git.
+Needs Python 3.11+, Node 20+ (with npm 9.5+ for `npm sbom`), git, and
+[OSV-Scanner](https://github.com/google/osv-scanner) on PATH. [Trivy](https://github.com/aquasecurity/trivy) is optional (cross-check).
+On Windows: `scoop install osv-scanner trivy`.
 
 First time only:
 
@@ -46,7 +48,7 @@ cd frontend; npm run dev
 ```
 
 Open http://localhost:5173 and paste e.g. `https://github.com/juice-shop/juice-shop` (takes about 3 minutes:
-most of it is npm resolving Juice Shop's two lockfiles).
+most of it is npm resolving Juice Shop's two lockfiles; OSV-Scanner adds about 10 seconds).
 
 Alternatively `npm run build` in `frontend`, then the backend alone serves the dashboard on http://localhost:8000.
 
@@ -66,4 +68,4 @@ backend/app/db.py            SQLite scan store, agent list
 frontend/src/                React + TypeScript dashboard (Vite)
 ```
 
-Self-check: `cd backend; .venv\Scripts\python -m tests.test_discovery`
+Self-checks: `cd backend; .venv\Scripts\python -m tests.test_discovery; .venv\Scripts\python -m tests.test_detection`

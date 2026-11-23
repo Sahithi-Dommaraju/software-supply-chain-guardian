@@ -1,6 +1,6 @@
 # Supply Chain Guardian: In-Depth Guide
 
-This guide explains everything built so far (Day 1 tasks 1 to 4 from the architecture document), how each
+This guide explains everything built so far (all of Day 1: tasks 1 to 8 from the architecture document), how each
 part works internally, what evidence it records, where it stops, and what every element of the dashboard
 means. The running example throughout is **OWASP Juice Shop** (`https://github.com/juice-shop/juice-shop`,
 commit `c9f9922`), scanned on 2026-11-23.
@@ -15,7 +15,7 @@ Contents
 6. [Agent 3: SBOM Generator](#6-agent-3-sbom-generator)
 7. [Agent 4: Dependency Graph](#7-agent-4-dependency-graph)
 8. [Agent 5: Container & CI/CD Inspection](#8-agent-5-container--cicd-inspection)
-9. [Planned agents 6 to 8](#9-planned-agents-6-to-8)
+9. [Agents 6 to 8: vulnerabilities, suspicious patterns, evidence](#9-agents-6-to-8-vulnerabilities-suspicious-patterns-evidence)
 10. [Storage, artifacts and the API](#10-storage-artifacts-and-the-api)
 11. [Dashboard walkthrough](#11-dashboard-walkthrough)
 12. [Safety model](#12-safety-model)
@@ -67,9 +67,9 @@ can be reproduced.
    ├─▶ 3 SBOM Generator         CycloneDX 1.5 JSON + npm sbom cross-check
    ├─▶ 4 Dependency Graph       BFS from repo root → depth + introduction path per package
    ├─▶ 5 Container & CI/CD      Dockerfiles + GitHub Actions → pinning and risky patterns
-   ├─ ─ 6 Vulnerability Detection      (planned)
-   ├─ ─ 7 Suspicious-Change Detection  (planned)
-   └─ ─ 8 Investigation & Evidence     (planned)
+   ├─▶ 6 Vulnerability Detection      osv-scanner per lockfile (+ Trivy cross-check) → advisories
+   ├─▶ 7 Suspicious-Change Detection  rules over lockfile, origins, names, Dockerfiles, workflows
+   └─▶ 8 Investigation & Evidence     evidence bundle + initial risk per finding → report.md/json
    │
    ▼  each agent writes its result into the scan record in SQLite as soon as it finishes
  Browser polls GET /api/scans/{id} every 2 seconds → cards and tabs fill in live
@@ -82,7 +82,7 @@ Step by step, what happens when you press **Start scan**:
    or `/`). Anything else (`file://`, other hosts, SSH URLs) is rejected with a 400 error before anything
    runs. This is the trust boundary: only public GitHub repos come in.
 3. A scan record is created with a random 12-character id, status `queued`, and all eight agents listed
-   (five `pending`, three `planned`). The id is returned at once, so the browser does not wait for the
+   (all `pending`). The id is returned at once, so the browser does not wait for the
    scan.
 4. FastAPI runs `pipeline.run(scan_id, url)` as a background task.
 5. The browser navigates to `#/scan/<id>` and polls every 2 seconds until the status is `completed` or
@@ -157,7 +157,7 @@ partial, unsupported or failed").
 | `partial` | Finished, but something was not covered (for example an unsupported manifest). Read the warnings |
 | `failed` | Threw an error; the scan stops here |
 | `skipped` | Never ran because an earlier agent failed |
-| `planned` | Not built yet (tasks 5 to 7) |
+| `planned` | Listed but not built (none at the moment; used when adding future agents) |
 
 ---
 
@@ -362,7 +362,7 @@ Why 154 direct when the manifests declare 98 + 63 = 161? A few packages are decl
 A Software Bill of Materials is a machine-readable list of every component in a piece of software. Two
 standards dominate: **CycloneDX** (OWASP) and **SPDX** (Linux Foundation). The Bosch brief accepts either;
 we produce **CycloneDX 1.5 JSON**, which vulnerability scanners such as OSV-Scanner, Trivy and Grype read
-directly. That is how the planned Vulnerability agent will consume it.
+directly. (The Vulnerability agent scans the lockfiles the SBOM was built from.)
 
 ### How it is built
 
@@ -455,7 +455,7 @@ Most packages sit 2 to 4 levels deep: they are invisible in `package.json` but s
 Example path the Bosch brief asks for ("show one transitive dependency path"):
 `juice-shop/juice-shop → juice-shop → pdfkit@0.11.0 → crypto-js@3.3.0`. Juice Shop never declares
 crypto-js, yet it ships version 3.3.0 because pdfkit depends on it (and crypto-js 3.x has a known critical
-weakness, which the planned Vulnerability agent will flag).
+weakness, which the Vulnerability agent flags as critical: GHSA-xwcq-pm8m-c4vf, fixed in 4.2.0).
 
 ---
 
@@ -523,21 +523,148 @@ listed as "not inspected", and the agent goes `partial`.
 * `.github/workflows/codeql-analysis.yml:23`: `github/codeql-action/init@v3` (first-party, notice).
 
 These are **observations**, not scored findings. Deciding which matter and with what severity is the
-planned Suspicious-Change Detection agent's job.
+Suspicious-Change Detection agent's job (section 9.2).
 
 ---
 
-## 9. Planned agents 6 to 8
+## 9. Agents 6 to 8: vulnerabilities, suspicious patterns, evidence
 
-Shown on the dashboard as dashed purple cards and "planned" tabs, so the pipeline is visible end to end.
-None of them runs yet, and **a scan makes no claim about vulnerabilities or suspicious changes until they
-do**.
+The two detection agents answer different questions, as the architecture doc requires: *does a published
+advisory affect this exact package version?* (agent 6) and *is there a risky supply-chain pattern even
+without a CVE?* (agent 7). Agent 8 joins both with the graph into evidence bundles.
 
-| Agent | Will do | Input already available |
-|-------|---------|-------------------------|
-| 6 Vulnerability Detection | Run OSV-Scanner or Trivy on `sbom.cdx.json` (or query the OSV API by purl); record advisory ID, severity, affected range, fixed version, source | SBOM, purls |
-| 7 Suspicious-Change Detection | Non-CVE risks: install scripts, typosquat-like names, unexpected origins, unpinned images/actions (from agent 5), lockfile/manifest changes | Components with `install_script`, `origin`; inspection observations; the clone |
-| 8 Investigation & Evidence | Join both branches with the graph: dependency path, evidence references, verified fact vs inference vs unknown; Day 1 report. First agent that may use an LLM, for explanation only | Paths from agent 4, everything above |
+Juice Shop run (all eight agents, about 75 seconds with cached npm metadata): **57 advisories on 22
+packages** (7 critical, 22 high, 26 medium, 2 low), **34 suspicious-pattern findings**, **91 evidence
+bundles** (7 critical, 20 high, 44 medium, 20 low initial risk).
+
+### 9.1 Agent 6: Vulnerability Detection
+
+**File:** `backend/app/agents/vulnerability.py` · **Tools:** [OSV-Scanner](https://google.github.io/osv-scanner/)
+2.7.1 (required), [Trivy](https://trivy.dev) 0.76.2 (optional cross-check). Install on Windows with
+`scoop install osv-scanner trivy`.
+
+**What OSV is.** [OSV.dev](https://osv.dev) is Google's open vulnerability database. It aggregates the
+GitHub Advisory Database (GHSA ids), the National Vulnerability Database (CVE ids), PyPI, Go and others
+into one format with exact affected version ranges. OSV-Scanner reads a lockfile, asks OSV which of its
+exact package versions are affected, and prints JSON.
+
+**How it runs.** For every project Discovery found, the agent picks what the scanner can read: the npm
+lockfile (committed or the one Discovery generated), the `requirements.txt` file, or `go.mod`. Then:
+
+```
+osv-scanner scan --lockfile package-lock.json --format json
+```
+
+* **Online mode (default)** queries `api.osv.dev`, so results are as fresh as the database.
+* **Offline mode**: set `GUARDIAN_OSV_OFFLINE=1` before starting the backend. It adds
+  `--offline-vulnerabilities --download-offline-databases`, so OSV's database is downloaded once and
+  matched locally. The mode used is recorded with each scan.
+* Exit code 1 means "vulnerabilities found" and is treated as success. Any other non-zero code marks that
+  project's scan **failed** with the error text, and the agent goes `partial`. A failed scan is never
+  reported as zero vulnerabilities.
+* The scanner's JSON is saved untouched as `osv-<n>.json`, downloadable from the dashboard.
+
+**Normalization.** OSV groups advisories that describe the same issue (e.g. `GHSA-xwcq-pm8m-c4vf` and
+`CVE-2023-46233`). Each group on each package becomes **one finding**:
+
+| Field | Source / rule |
+|-------|---------------|
+| `advisory_id` | The GHSA id if the group has one (GitHub-reviewed), else the first id |
+| `aliases`, `cves` | Every other id in the group (CVE ids listed separately) |
+| `cvss_score` | OSV's `max_severity` for the group (CVSS base score, 0–10) |
+| `cvss_vector` | The CVSS vector string from the advisory, e.g. `CVSS:3.1/AV:N/AC:L/...` |
+| `severity` | From the score: ≥9 critical, ≥7 high, ≥4 medium, >0 low. **No score** → the advisory's own label (GHSA `CRITICAL/HIGH/MODERATE/LOW`), recorded as `severity_source: advisory label`. **Neither** → `unrated` |
+| `fixed_versions`, `fix` | All `fixed` events in the advisory's ranges for this package; `fix` is the lowest one newer than the installed version, or none ("no fix published") |
+| `cwe` | Weakness ids (e.g. CWE-78 command injection) |
+| `path`, `direct`, `scope` | Joined from the dependency graph by purl (`pkg:npm/name@version`): the "introduced via" path |
+| `url` | `https://osv.dev/vulnerability/<id>` |
+
+If the same package@advisory appears in both projects it is kept once, with `also_in` listing the other.
+Juice Shop's 6 findings without a CVSS score (e.g. the `jsonwebtoken` and `marsdb` advisories) use the
+advisory label.
+
+**Trivy cross-check.** If `trivy` is on PATH, `trivy fs --scanners vuln --format json` runs on the same
+lockfile. Each OSV finding gets `trivy_confirmed: true` when Trivy reports one of its ids on the same
+package version. Juice Shop root: Trivy reported 54 entries and 50 match OSV. The 4 left over use old
+`NSWG-ECO-*` ids (Node Security Working Group), which OSV files under a different id for the same issue.
+Raw Trivy output is saved as `trivy-<n>.json`. The first Trivy run downloads its database (about a minute).
+
+**Evidence recorded per project:** the exact command, the OSV-Scanner version, mode, timestamp, the
+scanned file and its sha256 (the same hash Discovery recorded for a generated lockfile), the raw output
+file, finding counts, and the Trivy agreement.
+
+Examples from Juice Shop:
+
+| Severity | Advisory | Package | Introduced via | Fixed in |
+|----------|----------|---------|----------------|----------|
+| critical 9.2 | GHSA-23hp-3jrh-7fpw | tar@6.2.1 | juice-shop → sqlite3@5.1.7 → tar | 7.5.19 |
+| critical 9.1 | GHSA-xwcq-pm8m-c4vf (CVE-2023-46233) | crypto-js@3.3.0 | juice-shop → pdfkit@0.11.0 → crypto-js | 4.2.0 |
+| critical 9.1 | GHSA-jf85-cpcp-j695 (CVE-2019-10744) | lodash@2.4.2 | juice-shop → sanitize-html@1.4.2 → lodash | 4.17.12 |
+| high 8.7 | GHSA-gjcw-v447-2w7q | jws@0.2.6 | juice-shop → jsonwebtoken@0.4.0 → jws | 3.0.0 |
+
+### 9.2 Agent 7: Suspicious-Change Detection
+
+**File:** `backend/app/agents/change_detection.py`. No external tool: rules over data the earlier agents
+already collected. Every finding is labelled **fact** (read directly from a file or tool output) or
+**indicator** (a heuristic that needs a human to look).
+
+| Rule | What it checks | Severity | Basis | Juice Shop |
+|------|----------------|----------|-------|-----------|
+| `install-script` | Lockfile `hasInstallScript: true`: the package runs code when installed | medium if runtime, low if dev/optional | fact | 14 |
+| `unexpected-origin` | Tarball not from `registry.npmjs.org` / PyPI / Go proxy (git URL, plain URL, other registry) | high (local workspace package: low) | fact | 0 |
+| `typosquat` | Name within one character edit (insert, delete, substitute, swap) of a popular npm package, or equal once `-`, `_`, `.` are removed. Scoped and short names are skipped | low | indicator | 2 (`colord` vs color, `safer-buffer` vs safe-buffer: both legitimate, which is why it is only an indicator) |
+| `no-lockfile` | Project has no committed lockfile (Discovery had to generate one) | medium | fact | 2 |
+| `unpinned-action` | GitHub Action on a tag/branch, not a commit SHA | medium third-party, low first-party | fact | 7 |
+| `base-image` | `FROM` without a digest | medium for none/latest, low for a version tag | fact | 5 |
+| `workflow-risk` | `pull_request_target`, `permissions: write-all`, untrusted event text in scripts | medium / high | fact | 1 |
+| `build-install` | Dockerfile `npm install` (no lockfile) | medium for app deps, low for `npm install -g <tool>` | fact | 3 |
+
+**Not applicable on a baseline scan:** `modified-lockfile`, `unexpected-new-dependency` and
+`suspicious-version-bump` need a *before* and *after* commit to compare. This scan analyses one pinned
+commit, so they are listed on the dashboard as not applicable, with the reason, instead of being silently
+skipped.
+
+The popular-package list is a fixed set of about 170 well-known npm names in the source file. Swapping it
+for npm's top-1000 by downloads would catch more lookalikes.
+
+### 9.3 Agent 8: Investigation & Evidence
+
+**File:** `backend/app/agents/evidence.py`. Turns every finding from agents 6 and 7 into an **evidence
+bundle**, the contract the architecture doc calls `EvidenceBundle`:
+
+| Part | Content |
+|------|---------|
+| Component | purl, name, version, direct/transitive, scope |
+| Dependency path | Repo → project → … → package, as names |
+| Evidence references | Advisory URL, raw scanner output, SBOM entry, lockfile tarball URL + integrity hash, or `file:line` for CI/container findings |
+| **Verified facts** | Statements generated straight from tool output, e.g. "OSV advisory GHSA-… lists crypto-js@3.3.0 as affected", "CVSS base score 9.1 (vector)", "Fixed in 4.2.0", "Trivy independently reports the same advisory" |
+| **Inference** | Reasoned, not proven: "Transitive: fixing it most likely means upgrading the direct dependency pdfkit@0.11.0, or overriding the version", "Dev-only: not shipped in the production app", the rule's rationale |
+| **Unknowns** | What was not checked: reachability (is the vulnerable function called?), exploitability in this deployment, what an install script actually does, a lookalike's publisher |
+| **Initial risk** | A transparent rule, with its rationale shown (below) |
+
+**Initial risk rule**
+
+* Vulnerability: the severity band. If the package is **dev-only**, one level lower ("not part of the
+  running application"). No rating at all → `review`.
+* Suspicious pattern: the rule's own severity.
+
+It deliberately does not use reachability or exposure; those are Day 2 Risk Analysis inputs, and the
+report lists them as unknown rather than guessing.
+
+**Outputs**
+
+* `report.md`: human-readable report (coverage table, risk counts, every bundle). This is the Day 1 report.
+* `report.json`: the same, machine-readable.
+* A row per finding in the SQLite `findings` table (scan id, finding id, type, severity, initial risk,
+  purl, advisory id, rule, title, full bundle JSON) for querying across scans.
+* The **Day 1 acceptance checklist**, computed from what actually ran (e.g. "Vulnerability scan with
+  advisory evidence" is only ticked if every project's scan succeeded).
+* **Coverage gaps**: unsupported manifests, failed scanner runs, not-applicable rules, and the standing
+  note that reachability is not analysed. None of these are presented as "clean".
+
+**No LLM.** Every sentence in the report is assembled from tool output, so it works offline, costs
+nothing, and cannot invent a CVE or a reachability claim. An LLM can later write a plain-English summary
+on top of these bundles (Day 2), with the bundles as its only source.
 
 ---
 
@@ -557,7 +684,11 @@ backend/data/
     ├── generated-lock-0.json       lockfile generated for project 0 (if none committed)
     ├── generated-lock-1.json
     ├── npm-sbom-0.cdx.json         npm's own SBOM, cross-check evidence
-    └── npm-sbom-1.cdx.json
+    ├── npm-sbom-1.cdx.json
+    ├── osv-0.json, osv-1.json      raw OSV-Scanner output per project
+    ├── trivy-0.json, trivy-1.json  raw Trivy output (if installed)
+    ├── report.md                   the Day 1 evidence report
+    └── report.json                 same, machine-readable
 ```
 
 ### The database
@@ -573,6 +704,11 @@ JSON:
   "results": { "checkout": {...}, "discovery": {...}, "sbom": {...}, "graph": {...}, "inspection": {...} }
 }
 ```
+
+Table `findings(scan_id, finding_id, type, severity, initial_risk, component, advisory_id, rule, title,
+data)` holds one normalized row per vulnerability or suspicious finding (written by agent 8). Scans are
+never modified after they finish: rescanning creates a new scan id, so results from different times
+can be compared.
 
 A global lock serializes writes (fine for one process). If the server restarts mid-scan, scans left
 `queued` or `running` are marked `failed` at the next start instead of spinning forever. Moving to
@@ -595,7 +731,8 @@ Interactive API docs: http://localhost:8000/docs (FastAPI's built-in Swagger pag
 ## 11. Dashboard walkthrough
 
 **Files:** `frontend/src/` (React 19 + TypeScript, Vite). `App.tsx` (routing, home, scan page, tabs),
-`Overview.tsx`, `GraphView.tsx`, `SbomTable.tsx`, `Inspection.tsx`, `types.ts` (the typed API
+`Overview.tsx`, `GraphView.tsx`, `SbomTable.tsx`, `Inspection.tsx`, `Vulnerabilities.tsx`,
+`Suspicious.tsx`, `Report.tsx`, `types.ts` (the typed API
 contract), `styles.css`.
 
 ### Top bar
@@ -642,7 +779,9 @@ Click a card to jump to its tab. Juice Shop summaries:
 | 3 SBOM Generator | `CycloneDX 1.5, 1658 components` |
 | 4 Dependency Graph | `1659 nodes, 3383 edges, max depth 10` |
 | 5 Container & CI/CD | `3 Dockerfile(s), 16 workflow(s), 7 unpinned action ref(s)` |
-| 6–8 | `planned` |
+| 6 Vulnerability Detection | `57 advisories on 22 packages (7 critical, 22 high)` |
+| 7 Suspicious-Change Detection | `34 findings across 7 rules (14 install-script, 7 unpinned-action, 5 base-image)` |
+| 8 Investigation & Evidence | `91 evidence bundles, 27 critical/high initial risk` |
 
 ### Tab: Overview
 
@@ -658,6 +797,8 @@ Click a card to jump to its tab. Juice Shop summaries:
 | Install scripts | 14 | Packages that run code when installed |
 | CI/container warnings | 9 | Warning-level inspection observations |
 | SBOM | CDX 1.5 | Format and spec version of the generated SBOM |
+| Critical / high advisories | 7 / 22 | From the Vulnerability agent (57 advisories on 22 packages) |
+| Suspicious-pattern findings | 34 | From the Suspicious-Change agent (0 high, 18 medium) |
 
 **Discovered projects table**
 
@@ -767,10 +908,53 @@ transitive, runtime, MIT, `registry.npmjs.org`, required by `pdfkit@0.11.0`.
   SHA-pinned. The "only not SHA-pinned" checkbox (on by default) narrows it to the 7 that matter.
 * If other CI systems exist, a red banner lists them as not inspected.
 
-### Tabs: Vulnerabilities, Suspicious changes, Evidence report
+### Tab: Vulnerabilities
 
-Marked `PLANNED`. Each shows what the agent will do and states explicitly that, until it runs, the scan
-makes no claim in that area.
+* **Severity tiles**: Critical 7, High 22, Medium 26, Low 2, Unrated 0, Packages affected 22. Click a
+  tile to filter the table to that severity (click again to clear).
+* **Scan evidence**: one row per project: OSV-Scanner version, mode (online/offline), timestamp and exact
+  command; the scanned file and its sha256; result (`ok` / `failed` / `not scanned` with the reason) and
+  a **raw OSV JSON** link; Trivy agreement ("50 of 54 entries match OSV", hover the leftover count to see
+  them) and a raw Trivy link.
+* **Advisory table**, filterable by text (package, GHSA/CVE id, title), severity and relationship
+  (direct, transitive, runtime scope only):
+
+  | Column | Content |
+  |--------|---------|
+  | Severity | Band badge with the CVSS score (e.g. `CRITICAL 9.1`) |
+  | Advisory | GHSA id linked to osv.dev, CVE ids under it |
+  | Package | name@version, `direct`/`transitive` chip, scope chip if not runtime |
+  | Introduced via | The path, e.g. `juice-shop → pdfkit@0.11.0 → crypto-js@3.3.0` |
+  | Fixed in | Lowest fixed version above the installed one, or "no fix" |
+  | Summary | The advisory's title |
+
+  Click a row for details: severity source, CVSS vector, all ids, CWE, every fixed version, project(s),
+  whether Trivy confirms it, and publish date.
+
+### Tab: Suspicious changes
+
+* **Severity tiles** (high / medium / low, clickable) and **Rules triggered**.
+* **Patterns checked**: a chip per rule with its count (greyed if zero); click to filter. Below it, the
+  rules that are **not applicable** to a baseline scan (hover for the reason).
+* **Findings table**: severity; the finding with its category, rule and (for packages) introduction path;
+  **basis** (`fact` = read from a file or tool, `indicator` = heuristic, needs review); evidence
+  (`file:line` link to GitHub at the scanned commit with the line's text, or the lockfile field and
+  tarball URL); and why it matters.
+
+### Tab: Evidence report
+
+* **Header**: repository and commit, generation time, counts, and **Report (Markdown)** / **JSON**
+  download buttons.
+* **Initial-risk tiles**: critical 7, high 20, medium 44, low 20, review 0 (clickable filters).
+* **Day 1 acceptance checklist**: each item from the architecture doc with ✓ or ✕, computed from what
+  actually ran in this scan.
+* **Coverage and gaps**: what this scan did not check.
+* **Evidence bundles**: one expandable row per finding, sorted by initial risk. Expanded, it shows the
+  dependency path, the risk rationale, the fixed version, three columns (**Verified facts**,
+  **Inference**, **Unknown / not checked**) and the evidence links.
+
+Scans made before agents 6 to 8 existed show those tabs as "did not exist when this scan ran"; start a
+new scan to fill them.
 
 ---
 
@@ -786,12 +970,12 @@ The repo being scanned is **untrusted input**. The rules, and where they are enf
 | No escape via symlinks | `core.symlinks=false` |
 | No hanging on credentials | `GIT_TERMINAL_PROMPT=0`, timeouts on every subprocess |
 | Evidence downloads cannot read other files | Artifact endpoint resolves the path and requires it to be directly inside the scan's folder |
-| Never report clean when coverage is incomplete | `partial` / `failed` statuses, coverage-gap warnings, explicit "planned" notices |
+| Never report clean when coverage is incomplete | `partial` / `failed` statuses, coverage-gap warnings, not-applicable rules and "unknown" lists in every evidence bundle |
 | Scanned code never enters our git repo | `backend/data/` is gitignored |
 
 One residual note: npm reads the repo's `.npmrc` during lockfile generation, so a repo could point npm at
-a different registry. The `origin` column exposes this (it would show a non-npmjs host), and the
-Suspicious-Change agent should flag it.
+a different registry. The `origin` column exposes this, and the Suspicious-Change agent's
+`unexpected-origin` rule flags any package not served by the public registry as high.
 
 ---
 
@@ -806,7 +990,11 @@ Suspicious-Change agent should flag it.
 | One shortest path per package | Packages reachable several ways show only one route | Side panel lists all "Required by" parents; an all-paths query can be added |
 | Container images not pulled or scanned | Only the Dockerfile text is inspected | Trivy image scan in the Vulnerability agent |
 | Only GitHub Actions inspected in depth | Other CI systems listed but not analysed | Add parsers |
-| Shallow clone, no history | No commit diffs yet | Suspicious-Change agent will fetch a base commit for diffs |
+| Shallow clone, no history | Diff-based rules (modified lockfile, new dependency, version bump) are not applicable | Fetch a base commit and diff manifests/lockfiles |
+| Reachability not analysed | A vulnerable package may never have its vulnerable code called; risk can be overstated | Day 2: static call analysis, exposure and production-usage inputs |
+| Typosquat list is static (~170 names) | Lookalikes of less popular packages are missed; legitimate lookalikes are flagged (as indicators) | Use npm download counts and publisher data |
+| OSV online mode needs network | No network → that project's scan fails (reported, not clean) | `GUARDIAN_OSV_OFFLINE=1` with a downloaded database |
+| Install scripts not inspected | We know a script exists, not what it does | Download the tarball in a sandbox and read the script |
 | SQLite + one lock, single process | Fine for a demo, not for many parallel scans | PostgreSQL + a job queue (architecture doc section 7) |
 | No authentication | Anyone who can reach port 8000 can start scans | Run locally; add auth before exposing it |
 
@@ -820,10 +1008,9 @@ Adding an agent takes three steps:
    from `state` (e.g. `state["components"]`, the SBOM at `state["artifacts"]/sbom.cdx.json`, the clone at
    `state["workdir"]`), and return `(state_update, dashboard_result)` with `_summary` and optionally
    `_status`.
-2. Add it to `STEPS` in `backend/app/pipeline.py`. For the three planned agents, also remove the key from
-   `PLANNED` in `backend/app/db.py`, so new scans show them as `pending` rather than `planned`.
-3. Add its result type to `frontend/src/types.ts` and replace the planned panel for its tab in `App.tsx`
-   with a real component.
+2. Add it to `STEPS` in `backend/app/pipeline.py` and to `AGENTS` in `backend/app/db.py` (name shown on
+   its card). To show an agent before it exists, put its key in `PLANNED`.
+3. Add its result type to `frontend/src/types.ts`, a component for its tab, and the tab in `App.tsx`.
 
 New ecosystems go into `discovery.py` as another adapter emitting the same component and edge shape;
 SBOM, graph and dashboard then work unchanged.
@@ -854,4 +1041,8 @@ SBOM, graph and dashboard then work unchanged.
 | SHA pinning | Referencing a GitHub Action by full commit hash, which cannot be moved |
 | `pull_request_target` | GitHub Actions trigger that runs with the base repo's secrets on fork PRs |
 | LangGraph | Library for stateful agent workflows as graphs; our orchestrator |
-| CVE / advisory | A publicly recorded vulnerability (handled by the planned Vulnerability agent) |
+| CVE / advisory | A publicly recorded vulnerability with an id (CVE from MITRE/NVD, GHSA from GitHub) |
+| OSV | Open Source Vulnerabilities: Google's database and format that merges GHSA, NVD and ecosystem advisories with exact affected versions |
+| CVSS | Common Vulnerability Scoring System: a 0–10 base score plus a vector describing how the issue is exploited |
+| Evidence bundle | One finding with its component, path, evidence links, verified facts, inference, unknowns and initial risk |
+| Initial risk | Day 1 rating from a fixed rule (severity band, lowered for dev-only); Day 2 refines it with reachability and exposure |
