@@ -10,8 +10,11 @@ import time
 import uuid
 from pathlib import Path
 
-DATA = Path(__file__).resolve().parents[1] / "data"
-DATA.mkdir(exist_ok=True)
+import os
+
+# Cloned repos (workspaces/<scan>/repo), scan artifacts (scans/<scan>/) and the DB live here.
+DATA = Path(os.environ.get("GUARDIAN_DATA_DIR") or Path(__file__).resolve().parents[1] / "data")
+DATA.mkdir(parents=True, exist_ok=True)
 
 # Agents in pipeline order. "planned" ones are later Day 1 tasks, shown as stubs.
 AGENTS = [
