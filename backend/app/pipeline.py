@@ -34,6 +34,7 @@ STEPS = [
     ("discovery", discovery.run),
     ("sbom", sbom.run),
     ("graph", graph.run),
+    ("inspection", inspection.run),
 ]
 
 
