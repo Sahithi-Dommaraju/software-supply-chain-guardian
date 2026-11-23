@@ -113,4 +113,4 @@ def run(state: dict) -> tuple[dict, dict]:
                      f"{stats['unpinned_actions']} unpinned action ref(s)") if inspected
                     else "No Dockerfile or GitHub Actions workflow found",
     }
-    return {}, public
+    return {"inspection": {"observations": observations}}, public
