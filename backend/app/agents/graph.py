@@ -45,9 +45,9 @@ def run(state: dict) -> tuple[dict, dict]:
     comp_depths = [depth[c["id"]] - 1 for c in state["components"] if c["id"] in depth]  # depth 1 = direct
     edges = [{"source": root, "target": p["id"], "kind": "project"} for p in state["projects"]] + state["edges"]
     top = [{"id": i, "dependents": n} for i, n in fan_in.most_common(10)]
+    paths = {c["id"]: path(c["id"]) for c in state["components"] if c["id"] in parent}
     public = {
-        "nodes": nodes, "edges": edges,
-        "paths": {c["id"]: path(c["id"]) for c in state["components"] if c["id"] in parent},
+        "nodes": nodes, "edges": edges, "paths": paths,
         "stats": {"nodes": len(nodes), "edges": len(edges),
                   "max_depth": max(comp_depths, default=0),
                   "depth_histogram": dict(sorted(Counter(comp_depths).items())),
@@ -56,4 +56,4 @@ def run(state: dict) -> tuple[dict, dict]:
         "_status": "partial" if unreachable else "done",
         "_summary": f"{len(nodes)} nodes, {len(edges)} edges, max depth {max(comp_depths, default=0)}",
     }
-    return {}, public
+    return {"paths": paths}, public

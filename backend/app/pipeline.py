@@ -13,7 +13,7 @@ from typing import TypedDict
 from langgraph.graph import END, START, StateGraph
 
 from . import db
-from .agents import checkout, discovery, graph, inspection, sbom
+from .agents import checkout, discovery, graph, inspection, sbom, vulnerability
 
 
 class ScanState(TypedDict, total=False):
@@ -26,15 +26,19 @@ class ScanState(TypedDict, total=False):
     projects: list
     components: list
     edges: list
+    paths: dict
+    vulnerabilities: list
+    suspicious: list
 
 
-# Add later agents (vulnerability, change_detection, evidence) here.
+# Agents run in this order; each sees the state the earlier ones produced.
 STEPS = [
     ("checkout", checkout.run),
     ("discovery", discovery.run),
     ("sbom", sbom.run),
     ("graph", graph.run),
     ("inspection", inspection.run),
+    ("vulnerability", vulnerability.run),
 ]
 
 

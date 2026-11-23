@@ -27,7 +27,7 @@ AGENTS = [
     ("change_detection", "Suspicious-Change Detection"),
     ("evidence", "Investigation & Evidence"),
 ]
-PLANNED = {"vulnerability", "change_detection", "evidence"}
+PLANNED = {"change_detection", "evidence"}
 
 _lock = threading.Lock()  # ponytail: one global lock, fine for a single-process demo
 _db = sqlite3.connect(DATA / "guardian.db", check_same_thread=False)
