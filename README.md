@@ -17,6 +17,8 @@ output shows up on the dashboard.
 
 No repository code runs during a scan. Nothing is cloned until a URL is submitted.
 
+Full explanation of every agent and every dashboard element: [docs/DASHBOARD_GUIDE.md](docs/DASHBOARD_GUIDE.md).
+
 ## Run
 
 Needs Python 3.11+, Node 20+ (with npm 9.5+ for `npm sbom`), and git.
