@@ -226,7 +226,7 @@ export default function GraphView({ graph, components, theme }: { graph: G; comp
                 {c.integrity && <><dt>Integrity</dt><dd className="mono small break">{c.integrity.slice(0, 40)}…</dd></>}
                 <dt>Install script</dt><dd>{c.install_script ? <span className="chip generated">yes</span> : 'no'}</dd>
                 <dt>Install paths</dt><dd>{c.install_paths}</dd>
-                <dt>Projects</dt><dd>{c.projects.map((p) => p.replace('project:', '')).join(', ')}</dd>
+                <dt>Projects</dt><dd>{c.projects.map(label).join(', ')}</dd>
               </dl>
             )}
             <h3>Required by ({parents.length})</h3>
