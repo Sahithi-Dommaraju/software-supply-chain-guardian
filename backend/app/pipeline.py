@@ -13,7 +13,7 @@ from typing import TypedDict
 from langgraph.graph import END, START, StateGraph
 
 from . import db
-from .agents import checkout, discovery
+from .agents import checkout, discovery, sbom
 
 
 class ScanState(TypedDict, total=False):
@@ -32,6 +32,7 @@ class ScanState(TypedDict, total=False):
 STEPS = [
     ("checkout", checkout.run),
     ("discovery", discovery.run),
+    ("sbom", sbom.run),
 ]
 
 
