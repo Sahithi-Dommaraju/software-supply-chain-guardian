@@ -7,20 +7,30 @@ type View = 'all' | 'runtime' | 'direct'
 type FNode = GraphNode & { x?: number; y?: number; installScript?: boolean }
 type FLink = { source: string | FNode; target: string | FNode; kind: string }
 
-const COLORS = {
-  repo: '#f8fafc', project: '#a78bfa', direct: '#2dd4bf', transitive: '#60a5fa', dev: '#475569',
-  path: '#facc15', script: '#fb923c',
+export type Theme = 'light' | 'dark'
+// Edge alpha is tuned so links stay visible on each background without drowning the nodes.
+const PALETTES = {
+  dark: {
+    repo: '#f8fafc', project: '#a78bfa', direct: '#2dd4bf', transitive: '#60a5fa', dev: '#64748b',
+    path: '#facc15', script: '#fb923c', edge: 'rgba(148,163,184,0.42)', label: '#e2e8f0',
+  },
+  light: {
+    repo: '#0f172a', project: '#7c3aed', direct: '#0d9488', transitive: '#2563eb', dev: '#94a3b8',
+    path: '#d97706', script: '#c2410c', edge: 'rgba(51,65,85,0.38)', label: '#0f172a',
+  },
 }
+type Palette = (typeof PALETTES)['dark']
 const idOf = (x: string | FNode) => (typeof x === 'string' ? x : x.id)
 
-function nodeColor(n: FNode) {
+function nodeColor(n: FNode, COLORS: Palette) {
   if (n.type === 'repo') return COLORS.repo
   if (n.type === 'project') return COLORS.project
   if (n.scope === 'dev') return COLORS.dev
   return n.direct ? COLORS.direct : COLORS.transitive
 }
 
-export default function GraphView({ graph, components }: { graph: G; components: Component[] }) {
+export default function GraphView({ graph, components, theme }: { graph: G; components: Component[]; theme: Theme }) {
+  const COLORS = PALETTES[theme]
   const wrap = useRef<HTMLDivElement>(null)
   const fg = useRef<any>(null)
   const fitted = useRef(false)
@@ -112,7 +122,7 @@ export default function GraphView({ graph, components }: { graph: G; components:
             nodeId="id"
             nodeLabel={(n: FNode) => n.label}
             nodeVal={(n: FNode) => (n.type === 'repo' ? 14 : n.type === 'project' ? 8 : onPath.has(n.id) ? 5 : 1 + Math.min(4, (n.dependents ?? 0) / 8))}
-            nodeColor={(n: FNode) => (onPath.has(n.id) ? COLORS.path : nodeColor(n))}
+            nodeColor={(n: FNode) => (onPath.has(n.id) ? COLORS.path : nodeColor(n, COLORS))}
             nodeCanvasObjectMode={() => 'after'}
             nodeCanvasObject={(n: FNode, ctx, scale) => {
               if (n.installScript) {
@@ -124,13 +134,13 @@ export default function GraphView({ graph, components }: { graph: G; components:
               }
               if (n.type !== 'component' || onPath.has(n.id)) {
                 ctx.font = `${Math.max(10 / scale, 2)}px Inter, sans-serif`
-                ctx.fillStyle = '#e2e8f0'
+                ctx.fillStyle = COLORS.label
                 ctx.textAlign = 'center'
                 ctx.fillText(n.label, n.x!, n.y! - 8)
               }
             }}
-            linkColor={(l: FLink) => (pathEdges.has(`${idOf(l.source)}>${idOf(l.target)}`) ? COLORS.path : 'rgba(148,163,184,0.18)')}
-            linkWidth={(l: FLink) => (pathEdges.has(`${idOf(l.source)}>${idOf(l.target)}`) ? 3 : 0.5)}
+            linkColor={(l: FLink) => (pathEdges.has(`${idOf(l.source)}>${idOf(l.target)}`) ? COLORS.path : COLORS.edge)}
+            linkWidth={(l: FLink) => (pathEdges.has(`${idOf(l.source)}>${idOf(l.target)}`) ? 3 : 0.8)}
             linkDirectionalArrowLength={(l: FLink) => (pathEdges.has(`${idOf(l.source)}>${idOf(l.target)}`) ? 6 : 0)}
             linkDirectionalArrowRelPos={1}
             onNodeClick={(n: FNode) => select(n.id)}

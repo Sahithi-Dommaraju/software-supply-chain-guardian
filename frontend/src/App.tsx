@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { Scan, ScanSummary } from './types'
 import { AgentPipeline, Overview } from './Overview'
-import GraphView from './GraphView'
+import GraphView, { type Theme } from './GraphView'
 import SbomTable from './SbomTable'
 import Inspection from './Inspection'
 
@@ -36,8 +36,24 @@ function useHashRoute(): [string | null, (id: string | null) => void] {
   return [id, (next) => { location.hash = next ? `/scan/${next}` : '' }]
 }
 
+function useTheme() {
+  const [theme, setTheme] = useState<Theme>(() => {
+    try {
+      const saved = localStorage.getItem('theme')
+      if (saved === 'light' || saved === 'dark') return saved
+    } catch { /* storage blocked: fall back to OS preference */ }
+    return matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+  })
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+    try { localStorage.setItem('theme', theme) } catch { /* not persisted */ }
+  }, [theme])
+  return [theme, setTheme] as const
+}
+
 export default function App() {
   const [scanId, go] = useHashRoute()
+  const [theme, setTheme] = useTheme()
   return (
     <div className="app">
       <header className="topbar">
@@ -45,8 +61,12 @@ export default function App() {
           <span className="logo">◆</span> Supply Chain Guardian
         </a>
         <span className="topbar-sub">Agentic software supply-chain analysis</span>
+        <button className="theme-toggle" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>
+          {theme === 'dark' ? '☀ Light' : '☾ Dark'}
+        </button>
       </header>
-      <main>{scanId ? <ScanPage id={scanId} /> : <Home onScan={go} />}</main>
+      <main>{scanId ? <ScanPage id={scanId} theme={theme} /> : <Home onScan={go} />}</main>
     </div>
   )
 }
@@ -110,7 +130,7 @@ function Home({ onScan }: { onScan: (id: string) => void }) {
   )
 }
 
-function ScanPage({ id }: { id: string }) {
+function ScanPage({ id, theme }: { id: string; theme: Theme }) {
   const [scan, setScan] = useState<Scan | null>(null)
   const [missing, setMissing] = useState(false)
   const [tab, setTab] = useState<Tab>('overview')
@@ -168,7 +188,7 @@ function ScanPage({ id }: { id: string }) {
       <div className="tab-body">
         {tab === 'overview' && <Overview scan={scan} />}
         {tab === 'graph' && (scan.results.graph && scan.results.discovery
-          ? <GraphView graph={scan.results.graph} components={scan.results.discovery.components} />
+          ? <GraphView graph={scan.results.graph} components={scan.results.discovery.components} theme={theme} />
           : <Waiting agent={scan.agents.graph} />)}
         {tab === 'sbom' && (scan.results.sbom && scan.results.discovery
           ? <SbomTable scanId={scan.id} sbom={scan.results.sbom} discovery={scan.results.discovery} paths={scan.results.graph?.paths} />
