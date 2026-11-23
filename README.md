@@ -17,6 +17,11 @@ output shows up on the dashboard.
 
 No repository code runs during a scan. Nothing is cloned until a URL is submitted.
 
+Dashboard: React + TypeScript with light and dark themes (toggle in the top bar), live per-agent status,
+an interactive dependency graph (hover tooltips, neighbour highlighting, labels on zoom, click for details
+and the introduction path), a filterable SBOM table with download, and container/CI observations linked
+to file:line.
+
 Full explanation of every agent and every dashboard element: [docs/DASHBOARD_GUIDE.md](docs/DASHBOARD_GUIDE.md).
 
 ## Run

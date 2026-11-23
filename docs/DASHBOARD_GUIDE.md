@@ -695,10 +695,22 @@ links pull together, so tightly related packages cluster.
   actually ships), `Direct only` (repo, projects and direct dependencies, for a clean overview). The counter
   shows nodes and edges in the current view.
 * **Legend / colours**: white (dark mode) or black (light mode) = repo; purple = project; teal = direct;
-  blue = transitive; grey = dev-only; orange ring = has an install script; yellow/amber = selected path.
+  blue = transitive; grey = dev-only; orange ring = has an install script; yellow/amber = selected path;
+  pink = hovered node and its neighbours. Each theme has its own palette with edges strong enough to read
+  on its background.
 * **Node size**: repo largest, projects next, packages grow with their number of dependents.
-* **Mouse**: hover a node for its name; click to select; scroll to zoom; drag the background to pan; click
-  empty space to clear the selection.
+* **Hover tooltip**: hovering any dot shows `name@version`, direct or transitive, scope, depth, number of
+  dependents and whether it has an install script. The hovered node, its edges and its direct neighbours
+  turn pink and get labels, so you can see what it connects to at a glance.
+* **Labels**: the repo, projects and the selected path are always labelled. Direct dependencies are
+  labelled once you zoom in slightly (hidden at full zoom-out, where Juice Shop's 154 labels would overlap).
+  Beyond about 2.5x zoom every package is labelled. Labels have a halo in the background colour so they
+  stay readable over edges in both themes.
+* **Mouse**: hover for the tooltip; click a node to open its details; scroll to zoom; drag the background
+  to pan; click empty space to clear the selection. Every node can be clicked within about 8 screen pixels,
+  even when it is drawn smaller than that at low zoom.
+* **Narrow windows** (under 1100 px): the details panel floats over the right side of the graph instead
+  of dropping below it, with a × to close it.
 
 **Side panel (Component details)** for the selected package:
 
