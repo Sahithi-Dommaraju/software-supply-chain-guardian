@@ -27,13 +27,19 @@ AGENTS = [
     ("change_detection", "Suspicious-Change Detection"),
     ("evidence", "Investigation & Evidence"),
 ]
-PLANNED = {"evidence"}
+PLANNED: set[str] = set()  # agents listed but not built yet show as "planned"
 
 _lock = threading.Lock()  # ponytail: one global lock, fine for a single-process demo
 _db = sqlite3.connect(DATA / "guardian.db", check_same_thread=False)
 _db.execute(
     "CREATE TABLE IF NOT EXISTS scans (id TEXT PRIMARY KEY, repo_url TEXT, status TEXT,"
     " commit_sha TEXT, created_at REAL, data TEXT)"
+)
+# Normalized findings (vulnerability + suspicious), one row each, for querying across scans.
+_db.execute(
+    "CREATE TABLE IF NOT EXISTS findings (scan_id TEXT, finding_id TEXT, type TEXT, severity TEXT,"
+    " initial_risk TEXT, component TEXT, advisory_id TEXT, rule TEXT, title TEXT, data TEXT,"
+    " PRIMARY KEY (scan_id, finding_id))"
 )
 # A scan left 'running' by a server restart will never finish: say so instead of hanging.
 _db.execute("UPDATE scans SET status='failed' WHERE status IN ('queued','running')")
@@ -88,4 +94,13 @@ def update(scan_id: str, fn) -> None:
             "UPDATE scans SET status=?, commit_sha=?, data=? WHERE id=?",
             (data["status"], data["commit_sha"], json.dumps(data), scan_id),
         )
+        _db.commit()
+
+
+def save_findings(scan_id: str, bundles: list[dict]) -> None:
+    rows = [(scan_id, b["finding_id"], b["type"], b["severity"], b["initial_risk"]["level"],
+             b["component"]["purl"] if b["component"] else None, b.get("advisory_id"), b.get("rule"),
+             b["title"], json.dumps(b)) for b in bundles]
+    with _lock:
+        _db.executemany("INSERT OR REPLACE INTO findings VALUES (?,?,?,?,?,?,?,?,?,?)", rows)
         _db.commit()

@@ -13,7 +13,7 @@ from typing import TypedDict
 from langgraph.graph import END, START, StateGraph
 
 from . import db
-from .agents import change_detection, checkout, discovery, graph, inspection, sbom, vulnerability
+from .agents import change_detection, checkout, discovery, evidence, graph, inspection, sbom, vulnerability
 
 
 class ScanState(TypedDict, total=False):
@@ -41,6 +41,7 @@ STEPS = [
     ("inspection", inspection.run),
     ("vulnerability", vulnerability.run),
     ("change_detection", change_detection.run),
+    ("evidence", evidence.run),
 ]
 
 
