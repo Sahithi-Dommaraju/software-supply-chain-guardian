@@ -184,6 +184,12 @@ td > .level:first-child { margin-left: 0; }
 .legend { display: flex; flex-wrap: wrap; gap: 14px; color: var(--muted); font-size: 12px; margin: 10px 2px; }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
 .legend i.ring { background: none; border: 2px solid; }
+.legend .hint { margin-left: auto; font-style: italic; }
+/* force-graph's hover tooltip */
+.graph-canvas .float-tooltip-kap { background: var(--panel) !important; color: var(--text) !important; border: 1px solid var(--border);
+  border-radius: 8px !important; padding: 8px 10px !important; font: 12.5px/1.5 Inter, sans-serif !important; box-shadow: 0 6px 18px rgba(0, 0, 0, .25); }
+.graph-canvas .float-tooltip-kap b { font-family: 'JetBrains Mono', monospace; }
+.graph-canvas .float-tooltip-kap span, .graph-canvas .float-tooltip-kap i { color: var(--muted); }
 .graph-canvas { flex: 1; border-radius: 8px; background: var(--canvas); overflow: hidden; min-height: 0; }
 .graph-side { height: calc(100vh - 330px); min-height: 560px; overflow: auto; }
 .graph-side h2 { word-break: break-all; }

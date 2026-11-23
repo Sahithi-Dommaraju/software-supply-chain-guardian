@@ -12,15 +12,17 @@ export type Theme = 'light' | 'dark'
 const PALETTES = {
   dark: {
     repo: '#f8fafc', project: '#a78bfa', direct: '#2dd4bf', transitive: '#60a5fa', dev: '#64748b',
-    path: '#facc15', script: '#fb923c', edge: 'rgba(148,163,184,0.42)', label: '#e2e8f0',
+    path: '#facc15', script: '#fb923c', edge: 'rgba(148,163,184,0.42)', label: '#e2e8f0', halo: '#0b1120', hover: '#f472b6',
   },
   light: {
     repo: '#0f172a', project: '#7c3aed', direct: '#0d9488', transitive: '#2563eb', dev: '#94a3b8',
-    path: '#d97706', script: '#c2410c', edge: 'rgba(51,65,85,0.38)', label: '#0f172a',
+    path: '#d97706', script: '#c2410c', edge: 'rgba(51,65,85,0.38)', label: '#0f172a', halo: '#ffffff', hover: '#db2777',
   },
 }
 type Palette = (typeof PALETTES)['dark']
 const REL_SIZE = 4
+const LABEL_ZOOM = 2.5 // above this zoom every package gets a label
+const esc = (s: string) => s.replace(/[&<>"]/g, (ch) => `&#${ch.charCodeAt(0)};`)
 const idOf = (x: string | FNode) => (typeof x === 'string' ? x : x.id)
 
 function nodeColor(n: FNode, COLORS: Palette) {
@@ -61,6 +63,20 @@ export default function GraphView({ graph, components, theme }: { graph: G; comp
       .map((e) => ({ ...e }))
     return { nodes, links }
   }, [graph, view, byId])
+
+  const [hover, setHover] = useState<string | null>(null)
+  const neighbors = useMemo(() => {
+    const m = new Map<string, Set<string>>()
+    for (const e of graph.edges) {
+      if (!m.has(e.source)) m.set(e.source, new Set())
+      if (!m.has(e.target)) m.set(e.target, new Set())
+      m.get(e.source)!.add(e.target)
+      m.get(e.target)!.add(e.source)
+    }
+    return m
+  }, [graph])
+  const hoverSet = new Set(hover ? [hover, ...(neighbors.get(hover) ?? [])] : [])
+  const touchesHover = (l: FLink) => !!hover && (idOf(l.source) === hover || idOf(l.target) === hover)
 
   const path = selected ? graph.paths[selected] ?? [selected] : []
   const onPath = new Set(path)
@@ -114,6 +130,8 @@ export default function GraphView({ graph, components, theme }: { graph: G; comp
           ))}
           <span><i className="ring" style={{ borderColor: COLORS.script }} />install script</span>
           <span><i style={{ background: COLORS.path }} />selected path</span>
+          <span><i style={{ background: COLORS.hover }} />hovered + neighbours</span>
+          <span className="hint">Hover a dot for its name, zoom in (scroll) to label every package, click for details</span>
         </div>
         <div className="graph-canvas" ref={wrap}>
           <ForceGraph2D
@@ -123,7 +141,13 @@ export default function GraphView({ graph, components, theme }: { graph: G; comp
             graphData={data}
             backgroundColor="rgba(0,0,0,0)"
             nodeId="id"
-            nodeLabel={(n: FNode) => n.label}
+            nodeLabel={(n: FNode) => {
+              const kind = n.type !== 'component' ? n.type : n.direct ? 'direct dependency' : 'transitive dependency'
+              const extra = n.type === 'component'
+                ? `<br>${n.scope} · depth ${n.depth ?? '?'} · ${n.dependents ?? 0} dependents${n.installScript ? ' · install script' : ''}` : ''
+              return `<b>${esc(n.label)}</b><br><span>${kind}</span>${extra}<br><i>click for details</i>`
+            }}
+            onNodeHover={(n: FNode | null) => setHover(n?.id ?? null)}
             nodeVal={nodeVal}
             nodeRelSize={REL_SIZE}
             // Hit area never smaller than ~8 screen px, so tiny nodes stay clickable when zoomed out.
@@ -143,15 +167,23 @@ export default function GraphView({ graph, components, theme }: { graph: G; comp
                 ctx.lineWidth = 1.2
                 ctx.stroke()
               }
-              if (n.type !== 'component' || onPath.has(n.id)) {
-                ctx.font = `${Math.max(10 / scale, 2)}px Inter, sans-serif`
-                ctx.fillStyle = COLORS.label
+              // Labels: repo/projects, selected path and hovered neighbourhood always; direct deps once not fully zoomed out
+              // (154 overlapping labels on Juice Shop otherwise); every package past LABEL_ZOOM.
+              if (n.type !== 'component' || (n.direct && scale >= 1) || onPath.has(n.id) || hoverSet.has(n.id) || scale >= LABEL_ZOOM) {
+                const size = 11 / scale
+                ctx.font = `${n.id === hover || onPath.has(n.id) ? 600 : 400} ${size}px Inter, sans-serif`
                 ctx.textAlign = 'center'
-                ctx.fillText(n.label, n.x!, n.y! - 8)
+                ctx.textBaseline = 'bottom'
+                const y = n.y! - Math.sqrt(nodeVal(n)) * REL_SIZE - 2 / scale
+                ctx.lineWidth = 3 / scale
+                ctx.strokeStyle = COLORS.halo
+                ctx.strokeText(n.label, n.x!, y)
+                ctx.fillStyle = n.id === hover ? COLORS.hover : COLORS.label
+                ctx.fillText(n.label, n.x!, y)
               }
             }}
-            linkColor={(l: FLink) => (pathEdges.has(`${idOf(l.source)}>${idOf(l.target)}`) ? COLORS.path : COLORS.edge)}
-            linkWidth={(l: FLink) => (pathEdges.has(`${idOf(l.source)}>${idOf(l.target)}`) ? 3 : 0.8)}
+            linkColor={(l: FLink) => (pathEdges.has(`${idOf(l.source)}>${idOf(l.target)}`) ? COLORS.path : touchesHover(l) ? COLORS.hover : COLORS.edge)}
+            linkWidth={(l: FLink) => (pathEdges.has(`${idOf(l.source)}>${idOf(l.target)}`) ? 3 : touchesHover(l) ? 2 : 0.8)}
             linkDirectionalArrowLength={(l: FLink) => (pathEdges.has(`${idOf(l.source)}>${idOf(l.target)}`) ? 6 : 0)}
             linkDirectionalArrowRelPos={1}
             onNodeClick={(n: FNode) => select(n.id)}
