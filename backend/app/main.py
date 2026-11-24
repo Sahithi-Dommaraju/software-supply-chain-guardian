@@ -127,6 +127,8 @@ def delete_scan(scan_id: str):
         raise HTTPException(404, "Scan not found")
     if scan_id in pipeline.RUNNING:
         raise HTTPException(409, "Scan is still running: stop it first, then delete it")
+    if any(v.get("status") in ("queued", "running") for v in db.validations(scan_id).values()):
+        raise HTTPException(409, "A fix is being validated: wait for it to finish, then delete the scan")
     db.delete(scan_id)
     for folder in (db.DATA / "workspaces" / scan_id, db.DATA / "scans" / scan_id):
         if folder.exists():

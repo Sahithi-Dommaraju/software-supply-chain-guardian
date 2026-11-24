@@ -16,7 +16,7 @@ import os
 DATA = Path(os.environ.get("GUARDIAN_DATA_DIR") or Path(__file__).resolve().parents[1] / "data")
 DATA.mkdir(parents=True, exist_ok=True)
 
-# Agents in pipeline order. "planned" ones are later Day 1 tasks, shown as stubs.
+# Agents in pipeline order (shown as cards). Validate and Report run after approval, outside the pipeline.
 AGENTS = [
     ("checkout", "Repository Intake"),
     ("discovery", "Discovery Agent"),
@@ -134,7 +134,7 @@ def delete(scan_id: str) -> None:
         _db.commit()
 
 
-# ---------------------------------------------------------------- Day 2: LLM cache, approval decisions
+# ---------------------------------------------------------------- LLM cache, approval decisions
 _db.execute("CREATE TABLE IF NOT EXISTS llm_cache (key TEXT PRIMARY KEY, value TEXT, created_at REAL)")
 _db.execute(
     "CREATE TABLE IF NOT EXISTS decisions (scan_id TEXT, card_id TEXT, decision TEXT, decided_by TEXT,"

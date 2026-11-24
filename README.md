@@ -14,11 +14,14 @@ output shows up on the dashboard.
 | 6 | Vulnerability detection | built | OSV-Scanner on each lockfile (online, or offline with `GUARDIAN_OSV_OFFLINE=1`); CVSS band or advisory label, fixed version, introduction path; Trivy cross-check when installed |
 | 7 | Suspicious-change detection | built | Install scripts, non-registry origins, typosquat lookalikes, missing lockfiles, unpinned Actions/base images, risky workflows, Dockerfile installs |
 | 8 | Investigation & evidence | built | Evidence bundle per finding (facts / inference / unknowns, initial risk), Day 1 checklist, `report.md` + `report.json` |
-| 9 | Investigate (Day 2) | built | `npm pack --ignore-scripts` each flagged package (never run), tarball hash vs lockfile, static checks on install hooks (download/exec/obfuscation/secrets/URLs), OSV `MAL-`; optional GuardDog deep scan; AI verdict malicious/risky/harmless with file:line |
-| 10 | Prioritize (Day 2) | built | `min(10, CVSS × U × D × P × E × R)` with CISA KEV + EPSS; AI only labels reachability (Reachable / Unknown / Not reachable → R 1.0 / 1.0 / 0.7) |
-| 11 | Recommend Fix (Day 2) | built | Lowest upgrade of the package you control that resolves to a fixed version (npm registry), else lockfile refresh or `overrides`; rollback, jump type, AI changelog review |
-| 12 | Human Approval (Day 2) | built | Approve / Reject per fix card with name, time and note (`decisions` table); nothing is applied to the repo |
+| 9 | Investigate | built | Flagged packages: `npm pack --ignore-scripts` (never run), tarball hash vs lockfile, static checks on install hooks (download/exec/obfuscation/secrets/URLs), OSV `MAL-`, optional GuardDog. Workflow/Dockerfile findings: reads the lines, built-in checks (trusted publisher, official image + tag, curl\|sh, pull_request_target + PR checkout). AI verdict malicious/risky/harmless with file:line for everything not already harmless by rule |
+| 10 | Prioritize | built | `min(10, CVSS × U × D × P × E × R)` with CISA KEV + EPSS; AI only labels reachability (R 1.0 / 1.0 / 0.7). Risky/malicious Investigate verdicts get rows too: malicious 10, risky 6.0 stand-in (× U × D × P; 1.0 each for repo config), or a 4.0 floor on an existing CVE row |
+| 11 | Recommend Fix | built | Lowest upgrade of the package you control that resolves to a fixed version (npm registry), else lockfile refresh or `overrides`; pin-and-review cards for supply-chain risks; config cards (pin action SHA, image digest, `npm ci`, trigger/permissions); plain-English explanation per card |
+| 12 | Human Approval | built | Approve / Reject per fix card (`decisions` table); approving starts Validate |
+| 13 | Validate | built | Per approved fix: copy to branch `fix/<pkg>-<ver>`, apply the change, regenerate the lockfile, Docker sandbox build + test (network off after install), rescan, compare; verified / fixed but untested / tests failed / not fixed; AI explains failed builds |
+| 14 | Report | built | Before/after risk and SBOM, remaining risk (open, rejected, accepted, awaiting), audit trail, AI summary limited to verified numbers; Markdown/JSON export |
 
+AI: any OpenAI-compatible model via `backend/.env` (default `llama-3.3-70b-versatile` on Groq; `openai/gpt-oss-20b` also works).
 Every AI answer passes a plain-code Validator (cited files/lines exist, values in range, no invented IDs);
 failures fall back to the rule result. Without an API key everything still runs, rule-based.
 
@@ -45,7 +48,8 @@ cd frontend; npm install; cd ..
 ```
 
 For AI explanations, copy `backend/.env.example` to `backend/.env` and set `GROQ_API_KEY`
-(optional: `GUARDIAN_LLM_MODEL`, `GITHUB_TOKEN`, `GUARDIAN_GUARDDOG=on`). Restart the backend after any change.
+(optional: `GUARDIAN_LLM_MODEL`, `GITHUB_TOKEN`, `GUARDIAN_GUARDDOG=on`, `GUARDIAN_VALIDATE_TIMEOUT`, `GUARDIAN_ALLOW_UNSANDBOXED=1`).
+Validate builds and tests approved fixes in Docker: start Docker Desktop first, otherwise build/test is skipped and reported. Restart the backend after any change.
 
 Then, in two terminals (backend first):
 
