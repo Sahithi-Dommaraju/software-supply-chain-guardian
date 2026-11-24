@@ -1,9 +1,27 @@
 import { useState } from 'react'
-import type { Decision, FixCard, Results } from './types'
+import type { Decision, FixCard, Results, Risk } from './types'
 import { AiNote, Snippets } from './Day2Common'
 
-export default function FixesTab({ scanId, data, decisions, onDecided }: {
-  scanId: string; data: NonNullable<Results['remediate']>; decisions: Record<string, Decision>; onDecided: () => void
+type Pkg = NonNullable<FixCard['packages']>[number]
+
+/** Packages a card fixes, with the same score as on Prioritized risks. Cards from scans made before
+ *  per-package scores existed only list "also_fixes", so their scores are looked up in the ranking. */
+function packagesOf(c: FixCard, risks: Risk[]): Pkg[] {
+  if (c.packages?.length) return c.packages
+  const find = (name: string, version: string) => risks.find((r) => r.package === name && r.version === version)
+  const ids = [`${c.package}@${c.version}`, ...(c.also_fixes ?? [])]
+  const list = ids.map((id) => {
+    const at = id.lastIndexOf('@')
+    const [name, version] = [id.slice(0, at), id.slice(at + 1)]
+    const r = find(name, version)
+    return { package: name, version, band: r?.band ?? c.band, score_before: r?.final_score ?? c.score_before, score_after: 0 }
+  })
+  const changed = c.change?.package
+  return list.sort((a, b) => Number(a.package !== changed) - Number(b.package !== changed) || b.score_before - a.score_before)
+}
+
+export default function FixesTab({ scanId, data, decisions, onDecided, risks = [] }: {
+  scanId: string; data: NonNullable<Results['remediate']>; decisions: Record<string, Decision>; onDecided: () => void; risks?: Risk[]
 }) {
   const decided = Object.values(decisions)
   return (
@@ -14,13 +32,13 @@ export default function FixesTab({ scanId, data, decisions, onDecided }: {
         {decided.filter((d) => d.decision === 'rejected').length} rejected · {data.cards.length - decided.length} waiting
       </p>
       {data.errors.length > 0 && <div className="alert">Could not plan a fix for: {data.errors.map((e) => `${e.package} (${e.error})`).join('; ')}</div>}
-      {data.cards.map((c) => <Card key={c.id} c={c} scanId={scanId} decision={decisions[c.id]} onDecided={onDecided} />)}
+      {data.cards.map((c) => <Card key={c.id} c={c} pkgs={packagesOf(c, risks)} scanId={scanId} decision={decisions[c.id]} onDecided={onDecided} />)}
       {data.cards.length === 0 && <div className="card muted">No critical or high risks to fix.</div>}
     </div>
   )
 }
 
-function Card({ c, scanId, decision, onDecided }: { c: FixCard; scanId: string; decision?: Decision; onDecided: () => void }) {
+function Card({ c, pkgs, scanId, decision, onDecided }: { c: FixCard; pkgs: Pkg[]; scanId: string; decision?: Decision; onDecided: () => void }) {
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const [open, setOpen] = useState(false)
@@ -44,7 +62,7 @@ function Card({ c, scanId, decision, onDecided }: { c: FixCard; scanId: string; 
       <div className="fix-head">
         <h2>{c.title}</h2>
         <div className="score-move" title="Risk score from Prioritized risks, before → after this fix">
-          {(c.packages ?? [{ package: c.package, version: c.version, band: c.band, score_before: c.score_before, score_after: c.score_after }]).map((p) => (
+          {pkgs.map((p) => (
             <div key={p.package + p.version}>
               <span className="mono small">{p.package} {p.version}</span>{' '}
               <span className={`sev ${p.band}`}>{p.score_before.toFixed(1)}</span> → <span className="sev low">{p.score_after.toFixed(1)}</span>
@@ -81,7 +99,7 @@ function Card({ c, scanId, decision, onDecided }: { c: FixCard; scanId: string; 
               {ch ? <p className="mono small">{ch.package}: {ch.from} → {ch.to} <span className="chip">{ch.jump} jump</span><br />{ch.manifest} · {ch.field}</p>
                   : <p className="small">No version change possible.</p>}
               {c.patch && <pre className="code diff">{c.patch}</pre>}
-              {c.packages && c.packages.length > 1 && <p className="small muted">Fixes {c.packages.map((p) => `${p.package} ${p.version}`).join(' and ')} in one change</p>}
+              {pkgs.length > 1 && <p className="small muted">Fixes {pkgs.map((p) => `${p.package} ${p.version}`).join(' and ')} in one change</p>}
             </div>
             <div>
               <h3>Risk reduction</h3>

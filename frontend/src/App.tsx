@@ -252,7 +252,8 @@ function ScanPage({ id, theme }: { id: string; theme: Theme }) {
           ? <RisksTab data={scan.results.prioritize} />
           : <Waiting agent={scan.agents.prioritize ?? { name: 'Prioritize', status: 'planned' }} />)}
         {tab === 'remediate' && (scan.results.remediate
-          ? <FixesTab scanId={scan.id} data={scan.results.remediate} decisions={scan.decisions ?? {}} onDecided={() => setTick((t) => t + 1)} />
+          ? <FixesTab scanId={scan.id} data={scan.results.remediate} decisions={scan.decisions ?? {}} onDecided={() => setTick((t) => t + 1)}
+                       risks={scan.results.prioritize?.risks} />
           : <Waiting agent={scan.agents.remediate ?? { name: 'Recommend Fix', status: 'planned' }} />)}
         {tab === 'evidence' && (scan.results.evidence
           ? <Report scanId={scan.id} data={scan.results.evidence} repoUrl={scan.repo_url} sha={scan.commit_sha} />
