@@ -82,6 +82,14 @@ function Home({ onScan }: { onScan: (id: string) => void }) {
   const [scans, setScans] = useState<ScanSummary[]>([])
   useEffect(() => { fetch('/api/scans').then((r) => r.json()).then(setScans).catch(() => {}) }, [])
 
+  async function stop(s: ScanSummary) {
+    if (!confirm(`Stop the running scan of ${shortRepo(s.repo_url)}? The current agent finishes its step, then the scan stops.`)) return
+    const r = await fetch(`/api/scans/${s.id}/cancel`, { method: 'POST' }).catch(() => null)
+    if (!r?.ok) return setError(r ? (await r.json()).detail ?? 'Stop failed' : 'Backend not reachable on port 8000')
+    const { status } = await r.json()
+    setScans((all) => all.map((x) => (x.id === s.id ? { ...x, status } : x)))
+  }
+
   async function remove(s: ScanSummary) {
     const ok = confirm(`Delete the scan of ${shortRepo(s.repo_url)} from ${when(s.created_at)}?
 
@@ -136,9 +144,15 @@ function Home({ onScan }: { onScan: (id: string) => void }) {
                   <td><span className={`badge ${s.status}`}>{s.status}</span></td>
                   <td>{when(s.created_at)}</td>
                   <td className="row-action">
+                    {(s.status === 'queued' || s.status === 'running' || s.status === 'cancelling') && (
+                      <button className="trash stop" onClick={(e) => { e.stopPropagation(); stop(s) }}
+                              disabled={s.status === 'cancelling'} title="Stop this scan"
+                              aria-label={`Stop scan of ${shortRepo(s.repo_url)}`}>
+                        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
+                      </button>
+                    )}
                     <button className="trash" onClick={(e) => { e.stopPropagation(); remove(s) }}
-                            disabled={s.status === 'queued' || s.status === 'running'}
-                            title={s.status === 'running' || s.status === 'queued' ? 'Wait for the scan to finish' : 'Delete scan and its cloned repo'}
+                            title="Delete scan and its cloned repo (stop it first if it is running)"
                             aria-label={`Delete scan of ${shortRepo(s.repo_url)}`}>
                       <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor"
                            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -170,7 +184,7 @@ function ScanPage({ id, theme }: { id: string; theme: Theme }) {
       if (r?.ok) {
         const s: Scan = await r.json()
         setScan(s)
-        if (s.status === 'completed' || s.status === 'failed') return
+        if (s.status === 'completed' || s.status === 'failed' || s.status === 'cancelled') return
       }
       timer = window.setTimeout(load, 2000)
     }

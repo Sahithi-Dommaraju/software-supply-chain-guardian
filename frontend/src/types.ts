@@ -205,7 +205,7 @@ export interface Results {
 export interface Scan {
   id: string
   repo_url: string
-  status: 'queued' | 'running' | 'completed' | 'failed'
+  status: 'queued' | 'running' | 'cancelling' | 'cancelled' | 'completed' | 'failed'
   created_at: number
   commit_sha: string | null
   error: string | null

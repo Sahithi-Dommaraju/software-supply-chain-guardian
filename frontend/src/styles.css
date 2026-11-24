@@ -281,7 +281,8 @@ td > .level:first-child { margin-left: 0; }
 .refs li { padding: 2px 0; }
 @media (max-width: 900px) { .fiu { grid-template-columns: 1fr; } .sbom-head { flex-direction: column; align-items: flex-start; } }
 .vulns td.mono a { white-space: nowrap; }
-.row-action { width: 44px; text-align: right; }
+.row-action { width: 84px; text-align: right; white-space: nowrap; }
+.trash.stop { color: var(--warn); }
 .trash { background: transparent; color: var(--bad); border: 1px solid transparent; padding: 6px 8px; line-height: 0; }
 .trash:hover:not(:disabled) { background: rgba(248, 113, 113, .14); border-color: rgba(248, 113, 113, .4); }
 .trash:disabled { color: var(--muted); opacity: .4; }
@@ -316,3 +317,4 @@ button.approve { background: var(--ok); color: #04231a; }
 button.reject { background: var(--bad); color: #2a0606; }
 .decided { font-size: 13.5px; } .decided.approved { color: var(--ok); } .decided.rejected { color: var(--bad); }
 @media (max-width: 1000px) { .fix-grid { grid-template-columns: 1fr; } .pipeline { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.badge.cancelled, .badge.cancelling { background: rgba(251, 191, 36, .15); color: var(--warn); }
