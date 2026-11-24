@@ -5,13 +5,13 @@ import stat
 from pathlib import Path
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from . import db, llm, pipeline
+from . import db, llm, pipeline, report, validate
 from .agents.checkout import GITHUB_URL
 
 app = FastAPI(title="Software Supply Chain Guardian")
@@ -42,6 +42,7 @@ def get_scan(scan_id: str):
     if not scan:
         raise HTTPException(404, "Scan not found")
     scan["decisions"] = db.decisions(scan_id)  # kept apart from the immutable scan record
+    scan["validations"] = db.validations(scan_id)
     scan["llm"] = llm.status()
     return scan
 
@@ -54,7 +55,7 @@ class Decision(BaseModel):
 
 
 @app.post("/api/scans/{scan_id}/decisions")
-def decide(scan_id: str, d: Decision):
+def decide(scan_id: str, d: Decision, bg: BackgroundTasks):
     """Human Approval: record who approved or rejected a fix card, when, and why."""
     scan = db.get(scan_id)
     if not scan:
@@ -62,7 +63,35 @@ def decide(scan_id: str, d: Decision):
     cards = {c["id"] for c in scan["results"].get("remediate", {}).get("cards", [])}
     if d.card_id not in cards:
         raise HTTPException(404, "Fix card not found in this scan")
-    return db.decide(scan_id, d.card_id, d.decision, d.decided_by.strip() or "reviewer", d.note.strip())
+    row = db.decide(scan_id, d.card_id, d.decision, d.decided_by.strip() or "reviewer", d.note.strip())
+    if d.decision == "approved":  # Validate starts on approval, in the background
+        db.save_validation(scan_id, d.card_id, {"card_id": d.card_id, "status": "queued", "steps": []})
+        bg.add_task(validate.run, scan_id, d.card_id)
+    return row
+
+
+@app.post("/api/scans/{scan_id}/validations/{card_id}")
+def revalidate(scan_id: str, card_id: str, bg: BackgroundTasks):
+    """Run Validate again for an approved card (e.g. after starting Docker)."""
+    if db.decisions(scan_id).get(card_id, {}).get("decision") != "approved":
+        raise HTTPException(409, "Only approved fixes are validated")
+    if db.validations(scan_id).get(card_id, {}).get("status") in ("queued", "running"):
+        raise HTTPException(409, "This fix is already being validated")
+    db.save_validation(scan_id, card_id, {"card_id": card_id, "status": "queued", "steps": []})
+    bg.add_task(validate.run, scan_id, card_id)
+    return {"status": "queued"}
+
+
+@app.get("/api/scans/{scan_id}/report")
+def final_report(scan_id: str, format: Literal["json", "md"] = "json"):
+    """Agent 14: before/after, remaining risk, audit trail, summary. ?format=md downloads Markdown."""
+    if not db.get(scan_id):
+        raise HTTPException(404, "Scan not found")
+    rep = report.build(scan_id)
+    if format == "md":
+        return PlainTextResponse(report.markdown(rep), media_type="text/markdown",
+                                 headers={"Content-Disposition": f'attachment; filename="{scan_id}-final-report.md"'})
+    return rep
 
 
 @app.post("/api/scans/{scan_id}/cancel")
