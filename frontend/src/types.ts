@@ -86,6 +86,52 @@ export interface Bundle {
   initial_risk: { level: 'critical' | 'high' | 'medium' | 'low' | 'review'; rationale: string }
 }
 
+export interface AiResult {
+  ok: boolean; reason?: string; answer?: Record<string, any>; model?: string; cached?: boolean
+  attempts?: number; problems?: string[]; downgraded?: boolean
+}
+export interface Citation { file: string; line: number; quote?: string; code?: string }
+export interface Snippet { file: string; line: number; start: number; lines: string[] }
+
+export interface Investigation {
+  id: string; component: string; package: string; version: string; flagged_by: string[]
+  scope: string; direct: boolean; path: string[] | null; mal_advisories: string[]
+  tarball: { file?: string; size?: number; integrity?: string; integrity_match?: boolean; command?: string; error?: string }
+  install_scripts: { hook: string; command: string }[]
+  guarddog: { status: string; hits: { rule: string; file: string; line: number; code: string; message: string }[]; reason?: string }
+  rule_verdict: string; rule_reason: string; code: Record<string, string[]>; hook_lines?: number[]
+  ai: AiResult; verdict: 'malicious' | 'risky' | 'harmless' | 'unknown'; confidence: number | null
+  basis: string; reason: string; evidence: Citation[]
+}
+
+export interface Risk {
+  id: string; rank: number; component: string; package: string; version: string; scope: string; direct: boolean
+  path: string[]; controlled_by: string | null
+  advisories: { id: string; cves: string[]; cvss: number | null; severity: string; title: string; fix: string | null; url: string; cwe: string[] }[]
+  cvss: number; cvss_source: string; kev: string[]; epss: number | null
+  factors: { U: number; D: number; P: number; E: number; R: number }
+  base_score: number; final_score: number; formula: string; band: 'critical' | 'high' | 'medium' | 'low'
+  protected: boolean; labels: string[]; confidence: string
+  reachability: 'reachable' | 'unknown' | 'not_reachable'; reachability_basis: string; reason?: string
+  evidence: Citation[]; usage_snippets?: Snippet[]; ai: AiResult
+  investigation: { verdict: string; basis: string } | null
+}
+
+export interface FixCard {
+  id: string; risk_id: string; rank: number; package: string; version: string; band: string
+  action: 'upgrade' | 'upgrade-parent' | 'override' | 'replace' | 'remove'; title: string
+  change: { package: string; from: string; to: string; spec_from: string | null; spec_to: string; field: string | null; manifest: string; jump: string } | null
+  patch: string | null; rollback: { version: string; how: string } | null
+  resolution?: { package: string; version: string; range?: string }[]; target_after?: string
+  advisories_removed: string[]; cves_removed: string[]; remaining: string[]
+  score_before: number; score_after: number; band_after?: string
+  evidence: { registry?: string[]; changelog?: string }; usage_snippets?: Snippet[]
+  ai: AiResult; compatibility: { jump: string | null; breaking_risk: string | null }
+}
+
+export interface Decision { card_id: string; decision: 'approved' | 'rejected'; decided_by: string; note: string; decided_at: string }
+export interface LlmStatus { enabled: boolean; model: string; base_url: string; answered?: number; candidates?: number; tokens?: number }
+
 export interface Results {
   checkout?: {
     owner: string; repo: string; url: string; commit_sha: string; branch: string
@@ -142,6 +188,15 @@ export interface Results {
     bundles: Bundle[]
     artifacts: { json: string; markdown: string }
   }
+  investigate?: { items: Investigation[]; counts: Record<string, number>; guarddog: { status: string; tool?: string; seconds?: number; reason?: string }; llm: LlmStatus }
+  prioritize?: {
+    risks: Risk[]; counts: Record<string, number>; reachability: Record<string, number>
+    feeds: { kev: { status: string; source: string; catalog_version?: string; entries?: number; fetched?: string; reason?: string }
+             epss: { status: string; source?: string; cves_scored?: number; reason?: string } }
+    llm: LlmStatus
+  }
+  remediate?: { cards: FixCard[]; errors: { package: string; error: string }[]; llm: LlmStatus }
+  approval?: { requests: { card_id: string; title: string; action: string; band: string }[]; policy: string }
 }
 
 export interface Scan {
@@ -153,6 +208,8 @@ export interface Scan {
   error: string | null
   agents: Record<string, Agent>
   results: Results
+  decisions?: Record<string, Decision>
+  llm?: LlmStatus
 }
 
 export type ScanSummary = Pick<Scan, 'id' | 'repo_url' | 'status' | 'commit_sha' | 'created_at'>

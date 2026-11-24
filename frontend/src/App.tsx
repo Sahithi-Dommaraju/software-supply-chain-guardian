@@ -7,6 +7,9 @@ import Inspection from './Inspection'
 import Vulnerabilities from './Vulnerabilities'
 import Suspicious from './Suspicious'
 import Report from './Report'
+import InvestigationTab from './InvestigationTab'
+import RisksTab from './RisksTab'
+import FixesTab from './FixesTab'
 
 const TABS = [
   ['overview', 'Overview'],
@@ -16,6 +19,9 @@ const TABS = [
   ['vulnerability', 'Vulnerabilities'],
   ['change_detection', 'Suspicious changes'],
   ['evidence', 'Evidence report'],
+  ['investigate', 'Investigation'],
+  ['prioritize', 'Prioritized risks'],
+  ['remediate', 'Fixes & approval'],
 ] as const
 type Tab = (typeof TABS)[number][0]
 
@@ -154,6 +160,7 @@ function ScanPage({ id, theme }: { id: string; theme: Theme }) {
   const [scan, setScan] = useState<Scan | null>(null)
   const [missing, setMissing] = useState(false)
   const [tab, setTab] = useState<Tab>('overview')
+  const [tick, setTick] = useState(0)
 
   useEffect(() => {
     let timer = 0
@@ -169,7 +176,7 @@ function ScanPage({ id, theme }: { id: string; theme: Theme }) {
     }
     load()
     return () => clearTimeout(timer)
-  }, [id])
+  }, [id, tick])
 
   if (missing) return <div className="card">Scan not found.</div>
   if (!scan) return <div className="card">Loading…</div>
@@ -200,7 +207,8 @@ function ScanPage({ id, theme }: { id: string; theme: Theme }) {
 
       <nav className="tabs">
         {TABS.map(([key, label]) => (
-          <button key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}>
+          <button key={key} className={`${tab === key ? 'active' : ''} ${key === 'investigate' ? 'day2-start' : ''}`} onClick={() => setTab(key)}>
+            {key === 'investigate' && <span className="day-tag">Day 2</span>}
             {label}
             {scan.agents[key]?.status === 'planned' && <span className="soon">planned</span>}
           </button>
@@ -224,6 +232,15 @@ function ScanPage({ id, theme }: { id: string; theme: Theme }) {
         {tab === 'change_detection' && (scan.results.change_detection
           ? <Suspicious data={scan.results.change_detection} label={label} repoUrl={scan.repo_url} sha={scan.commit_sha} />
           : <Waiting agent={scan.agents.change_detection} />)}
+        {tab === 'investigate' && (scan.results.investigate
+          ? <InvestigationTab data={scan.results.investigate} />
+          : <Waiting agent={scan.agents.investigate ?? { name: 'Investigate', status: 'planned' }} />)}
+        {tab === 'prioritize' && (scan.results.prioritize
+          ? <RisksTab data={scan.results.prioritize} />
+          : <Waiting agent={scan.agents.prioritize ?? { name: 'Prioritize', status: 'planned' }} />)}
+        {tab === 'remediate' && (scan.results.remediate
+          ? <FixesTab scanId={scan.id} data={scan.results.remediate} decisions={scan.decisions ?? {}} onDecided={() => setTick((t) => t + 1)} />
+          : <Waiting agent={scan.agents.remediate ?? { name: 'Recommend Fix', status: 'planned' }} />)}
         {tab === 'evidence' && (scan.results.evidence
           ? <Report scanId={scan.id} data={scan.results.evidence} repoUrl={scan.repo_url} sha={scan.commit_sha} />
           : <Waiting agent={scan.agents.evidence} />)}
