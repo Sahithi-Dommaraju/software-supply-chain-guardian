@@ -54,9 +54,19 @@ STEPS = [
 ]
 
 
+RUNNING: set[str] = set()     # scans executing in this server process
+CANCELLED: set[str] = set()   # scans asked to stop; checked before each agent starts
+
+
+class ScanCancelled(Exception):
+    pass
+
+
 def _node(key, fn):
     def run(state: ScanState) -> dict:
         sid = state["scan_id"]
+        if sid in CANCELLED:
+            raise ScanCancelled("Stopped by user")
         start = time.time()
         db.update(sid, lambda d: d["agents"][key].update(status="running", started_at=start))
         try:
@@ -97,15 +107,21 @@ def run(scan_id: str, repo_url: str) -> None:
     artifacts = db.DATA / "scans" / scan_id
     shutil.rmtree(workspace, ignore_errors=True)
     artifacts.mkdir(parents=True, exist_ok=True)
+    RUNNING.add(scan_id)
     db.update(scan_id, lambda d: d.update(status="running"))
     try:
         GRAPH.invoke({"scan_id": scan_id, "repo_url": repo_url,
                       "workdir": str(workspace / "repo"), "artifacts": str(artifacts)})
         db.update(scan_id, lambda d: d.update(status="completed"))
     except Exception as e:
+        cancelled = isinstance(e, ScanCancelled)
+
         def fail(d):
-            d.update(status="failed", error=str(e))
+            d.update(status="cancelled" if cancelled else "failed", error=str(e))
             for a in d["agents"].values():
-                if a["status"] == "pending":
+                if a["status"] in ("pending", "running"):
                     a["status"] = "skipped"
         db.update(scan_id, fail)
+    finally:
+        RUNNING.discard(scan_id)
+        CANCELLED.discard(scan_id)

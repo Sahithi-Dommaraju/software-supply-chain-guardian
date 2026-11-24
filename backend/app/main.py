@@ -65,6 +65,23 @@ def decide(scan_id: str, d: Decision):
     return db.decide(scan_id, d.card_id, d.decision, d.decided_by.strip(), d.note.strip())
 
 
+@app.post("/api/scans/{scan_id}/cancel")
+def cancel_scan(scan_id: str):
+    """Stop a running scan. The agent that is working finishes its current step (e.g. an npm
+    resolve), then the scan stops before the next agent and is marked cancelled."""
+    scan = db.get(scan_id)
+    if not scan:
+        raise HTTPException(404, "Scan not found")
+    if scan_id in pipeline.RUNNING:
+        pipeline.CANCELLED.add(scan_id)
+        db.update(scan_id, lambda d: d.update(status="cancelling"))
+        return {"status": "cancelling"}
+    if scan["status"] in ("queued", "running", "cancelling"):  # stale record: nothing is executing it
+        db.update(scan_id, lambda d: d.update(status="cancelled", error="Stopped by user"))
+        return {"status": "cancelled"}
+    return {"status": scan["status"]}
+
+
 def _force_remove(func, path, _exc):
     # git marks pack files read-only; Windows refuses to delete those until the flag is cleared
     os.chmod(path, stat.S_IWRITE)
@@ -79,8 +96,8 @@ def delete_scan(scan_id: str):
     scan = db.get(scan_id)
     if not scan:
         raise HTTPException(404, "Scan not found")
-    if scan["status"] in ("queued", "running"):
-        raise HTTPException(409, "Scan is still running; wait for it to finish before deleting it")
+    if scan_id in pipeline.RUNNING:
+        raise HTTPException(409, "Scan is still running: stop it first, then delete it")
     db.delete(scan_id)
     for folder in (db.DATA / "workspaces" / scan_id, db.DATA / "scans" / scan_id):
         if folder.exists():

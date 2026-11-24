@@ -45,9 +45,24 @@ _db.execute(
     " initial_risk TEXT, component TEXT, advisory_id TEXT, rule TEXT, title TEXT, data TEXT,"
     " PRIMARY KEY (scan_id, finding_id))"
 )
-# A scan left 'running' by a server restart will never finish: say so instead of hanging.
-_db.execute("UPDATE scans SET status='failed' WHERE status IN ('queued','running')")
-_db.commit()
+
+
+def _fail_interrupted() -> None:
+    """A scan left queued/running by a server restart will never finish: mark it failed in both the
+    status column and the JSON record (the dashboard and the delete check read the JSON)."""
+    rows = _db.execute("SELECT id, data FROM scans").fetchall()
+    for sid, raw in rows:
+        d = json.loads(raw)
+        if d.get("status") in ("queued", "running", "cancelling"):
+            d.update(status="failed", error="Interrupted: the server restarted while this scan was running")
+            for a in d.get("agents", {}).values():
+                if a.get("status") in ("pending", "running"):
+                    a["status"] = "skipped"
+            _db.execute("UPDATE scans SET status='failed', data=? WHERE id=?", (json.dumps(d), sid))
+    _db.commit()
+
+
+_fail_interrupted()
 
 
 def create(repo_url: str) -> str:
