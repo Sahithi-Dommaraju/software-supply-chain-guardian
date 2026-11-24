@@ -1,5 +1,5 @@
 import { Fragment, useState } from 'react'
-import type { Results } from './types'
+import type { ConfigItem, Results } from './types'
 import { AiNote, CodeView, LlmBanner } from './Day2Common'
 
 const VERDICT_CLASS: Record<string, string> = { malicious: 'critical', risky: 'high', harmless: 'low', unknown: 'unrated' }
@@ -71,9 +71,47 @@ export default function InvestigationTab({ data }: { data: NonNullable<Results['
           </tbody>
         </table>
         {data.items.length === 0 && <p className="muted">No package needed investigation.</p>}
+        {!!data.config_items?.length && <ConfigTable items={data.config_items} />}
         {!!data.not_investigated?.length && <p className="small muted">Not investigated (limit of 25 per scan; lower priority):{' '}
           <span className="mono">{data.not_investigated.join(', ')}</span></p>}
       </section>
     </div>
+  )
+}
+
+function ConfigTable({ items }: { items: ConfigItem[] }) {
+  const [open, setOpen] = useState<string | null>(null)
+  return (
+    <>
+      <h2 className="section-title">Repo configuration findings</h2>
+      <p className="small muted">Workflow and Dockerfile findings from Suspicious changes. Nothing is downloaded: the
+        agent reads the lines around each finding, runs built-in checks, then asks the AI.</p>
+      <table className="table">
+        <thead><tr><th>Verdict</th><th>Where</th><th>Finding</th><th>Checks</th><th>Reason</th></tr></thead>
+        <tbody>
+          {items.map((i) => (
+            <Fragment key={i.id}>
+              <tr className="clickable" onClick={() => setOpen(open === i.id ? null : i.id)}>
+                <td><span className={`sev ${VERDICT_CLASS[i.verdict]}`}>{i.verdict}
+                  {i.confidence != null && <b>{Math.round(i.confidence * 100)}%</b>}</span>
+                  <div className="small muted">{i.basis}</div></td>
+                <td className="mono small">{i.file}:{i.line}</td>
+                <td className="small"><span className="chip">{i.rule}</span><div>{i.title}</div></td>
+                <td className="small">{i.static.hits.map((h) => <div key={h.rule}>{h.message}</div>)}</td>
+                <td className="small">{i.reason}</td>
+              </tr>
+              {open === i.id && (
+                <tr className="detail-row"><td colSpan={5}>
+                  <div className="row-between"><b>Evidence</b><AiNote ai={i.ai} /></div>
+                  {i.verdict !== i.rule_verdict && <p className="small muted">Rule-only verdict would be: {i.rule_verdict} ({i.rule_reason})</p>}
+                  <CodeView file={i.snippet.file} lines={i.snippet.lines} start={i.snippet.start}
+                            highlight={[i.line, ...i.evidence.map((e) => e.line)]} />
+                </td></tr>
+              )}
+            </Fragment>
+          ))}
+        </tbody>
+      </table>
+    </>
   )
 }

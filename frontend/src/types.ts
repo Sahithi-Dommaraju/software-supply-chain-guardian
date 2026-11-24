@@ -95,6 +95,13 @@ export interface Snippet { file: string; line: number; start: number; lines: str
 
 export interface Hit { rule: string; file: string; line: number; code: string; message: string }
 
+export interface ConfigItem {
+  id: string; component: string; package: string; file: string; line: number; rule: string; category: string
+  title: string; text: string; static: { status: string; hits: Hit[] }; rule_verdict: string; rule_reason: string
+  snippet: { file: string; start: number; lines: string[] }; ai: AiResult
+  verdict: 'malicious' | 'risky' | 'harmless'; confidence: number | null; basis: string; reason: string; evidence: Citation[]
+}
+
 export interface Investigation {
   id: string; component: string; package: string; version: string; flagged_by: string[]
   scope: string; direct: boolean; path: string[] | null; mal_advisories: string[]
@@ -122,7 +129,7 @@ export interface Risk {
 
 export interface FixCard {
   id: string; risk_id: string; rank: number; package: string; version: string; band: string
-  action: 'upgrade' | 'upgrade-parent' | 'relock' | 'override' | 'replace' | 'remove' | 'pin'; title: string; also_fixes?: string[]
+  action: 'upgrade' | 'upgrade-parent' | 'relock' | 'override' | 'replace' | 'remove' | 'pin' | 'config'; title: string; also_fixes?: string[]
   change: { package: string; from: string; to: string; spec_from: string | null; spec_to: string; field: string | null; manifest: string; jump: string } | null
   patch: string | null; rollback: { version: string; how: string } | null
   resolution?: { package: string; version: string; range?: string }[]; target_after?: string
@@ -193,7 +200,7 @@ export interface Results {
     bundles: Bundle[]
     artifacts: { json: string; markdown: string }
   }
-  investigate?: { items: Investigation[]; not_investigated?: string[]; counts: Record<string, number>; guarddog: { status: string; tool?: string; seconds?: number; reason?: string }; llm: LlmStatus }
+  investigate?: { items: Investigation[]; config_items?: ConfigItem[]; config_counts?: Record<string, number>; not_investigated?: string[]; counts: Record<string, number>; guarddog: { status: string; tool?: string; seconds?: number; reason?: string }; llm: LlmStatus }
   prioritize?: {
     risks: Risk[]; counts: Record<string, number>; reachability: Record<string, number>
     feeds: { kev: { status: string; source: string; catalog_version?: string; entries?: number; fetched?: string; reason?: string }

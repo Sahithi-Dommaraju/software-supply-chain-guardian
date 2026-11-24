@@ -45,7 +45,7 @@ export default function RisksTab({ data }: { data: NonNullable<Results['prioriti
                     <td>{r.rank}</td>
                     <td><span className={`sev ${r.band}`}>{r.band}<b>{r.final_score.toFixed(1)}</b></span>
                       <div className="small muted">{r.confidence} confidence</div></td>
-                    <td className="mono small">{r.package}@{r.version}
+                    <td className="mono small">{r.version ? `${r.package}@${r.version}` : r.package}
                       <div>{r.direct ? <span className="chip direct">direct</span> : <span className="chip" title={r.path.join(' → ')}>via {r.controlled_by}</span>}
                         {r.scope !== 'runtime' && <span className="chip">{r.scope}</span>}</div></td>
                     <td><span className={`reach ${r.reachability}`}>{REACH[r.reachability]}</span>
