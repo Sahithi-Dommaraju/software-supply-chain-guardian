@@ -37,9 +37,12 @@ REGISTRY = "https://registry.npmjs.org/"
 SYSTEM = """You review a proposed npm dependency upgrade for breaking changes. Use ONLY the changelog
 excerpt and the application code snippets given (line numbers are shown before each line).
 Explain concretely what in THIS application's code could break and why; if the changelog says
-nothing relevant, say so and rate the risk low. Never invent advisory IDs or APIs. Reply as JSON:
-{"breaking_risk": "low|medium|high", "summary": "2-3 sentences",
- "notes": [{"text": "...", "file": "path or null", "line": 1}]}"""
+nothing relevant, say so and rate the risk low. Never invent advisory IDs or APIs.
+Also write "explanation": 2-3 short sentences in plain English for a non-specialist who must click
+Approve or Reject: what the security problem is, what this change does, and what might break.
+No jargon, no IDs. Reply as JSON:
+{"explanation": "plain-English 2-3 sentences", "breaking_risk": "low|medium|high",
+ "summary": "2-3 sentences (technical)", "notes": [{"text": "...", "file": "path or null", "line": 1}]}"""
 
 _packuments: dict[str, dict] = {}
 
@@ -221,6 +224,7 @@ def run(state: dict) -> tuple[dict, dict]:
             card["ai"] = review(card, notes, snippets, root, known_ids)
         else:
             card["ai"] = {"ok": False, "reason": "no change to review"}
+        card["plain"] = plain_explanation(card)
         card["compatibility"] = {"jump": (ch or {}).get("jump"),
                                  "breaking_risk": card["ai"]["answer"]["breaking_risk"] if card["ai"].get("ok") else None}
         cards.append(card)
@@ -234,7 +238,10 @@ def run(state: dict) -> tuple[dict, dict]:
                              "score_before": 10.0, "score_after": 0.0, "advisories_removed": [a["id"] for a in r["advisories"]],
                              "cves_removed": [], "remaining": [], "change": None, "patch": None,
                              "rollback": None, "ai": {"ok": False, "reason": "no AI for malware removal"},
-                             "compatibility": {"jump": None, "breaking_risk": None}, "evidence": {}})
+                             "compatibility": {"jump": None, "breaking_risk": None}, "evidence": {},
+                             "plain": {"source": "rule", "text": f"{r['package']} {r['version']} is known malware. "
+                                       "Removing it stops it from running on your machines; anything that "
+                                       "depends on it must be replaced."}})
     public = {
         "cards": cards, "errors": errors, "llm": {**llm.status(), "answered": sum(bool(c["ai"].get("ok")) for c in cards)},
         "_status": "partial" if errors else "done",
@@ -242,6 +249,27 @@ def run(state: dict) -> tuple[dict, dict]:
                     + (f"; {len(errors)} could not be planned" if errors else ""),
     }
     return {"fixes": cards}, public
+
+
+def plain_explanation(card: dict) -> dict:
+    """Simple words for the approver: the AI's explanation if it passed the Validator, else a rule sentence."""
+    if card["ai"].get("ok") and card["ai"]["answer"].get("explanation"):
+        return {"text": card["ai"]["answer"]["explanation"], "source": "AI"}
+    n, ch = len(card["advisories_removed"]), card.get("change") or {}
+    problem = (f"{card['package']} {card['version']} has {n} known security problem{'s' if n != 1 else ''}."
+               if n else f"{card['package']} {card['version']} has known security problems.")
+    what = {"upgrade": f"This updates {ch.get('package')} from {ch.get('from')} to {ch.get('to')}.",
+            "upgrade-parent": f"This updates {ch.get('package')} from {ch.get('from')} to {ch.get('to')}, "
+                              f"which brings in a safe version of {card['package']}.",
+            "relock": f"This only refreshes the lockfile so {card['package']} moves to {ch.get('to')}; "
+                      "package.json does not change.",
+            "override": f"This forces {card['package']} to {ch.get('to')} with an npm override.",
+            "replace": "No safe version has been published, so the package has to be replaced or its use limited."
+            }.get(card["action"], "")
+    risk = {"major": "It is a major version change, so some code may need updating; test before release.",
+            "minor": "It is a minor version change and should not break anything, but run the tests.",
+            "patch": "It is a small patch change and is very unlikely to break anything."}.get(ch.get("jump"), "")
+    return {"text": " ".join(x for x in (problem, what, risk) if x), "source": "rule"}
 
 
 def merge_same_change(cards: list) -> list:
@@ -257,7 +285,7 @@ def merge_same_change(cards: list) -> list:
             first = seen[key]
             if upgrade and ver(ch["to"]) > ver(first["change"]["to"]):
                 for k in ("change", "patch", "resolution", "target_after", "title", "evidence", "usage_snippets", "ai",
-                          "compatibility"):
+                          "compatibility", "plain"):
                     if k in c:
                         first[k] = c[k]
                 first["score_before"] = max(first["score_before"], c["score_before"])
@@ -285,6 +313,8 @@ def review(card: dict, notes: str, snippets: list, root: Path, known_ids: set) -
 
     def validate(a: dict) -> list:
         p = llm.check_enum(a, "breaking_risk", {"low", "medium", "high"})
+        if not isinstance(a.get("explanation"), str) or not a["explanation"].strip():
+            p.append("'explanation' must be 2-3 plain-English sentences")
         if not isinstance(a.get("summary"), str) or not a["summary"].strip():
             p.append("'summary' must be a short explanation")
         notes_ = a.get("notes")
@@ -296,7 +326,7 @@ def review(card: dict, notes: str, snippets: list, root: Path, known_ids: set) -
                 p.append("each note needs 'text'")
             elif n.get("file") and (n["file"] not in files or (n["file"], n.get("line")) not in windows):
                 p.append(f"note cites {n.get('file')}:{n.get('line')}, which is not in the snippets shown")
-        p += llm.check_ids(a.get("summary", "") + " ".join(str(n.get("text")) for n in notes_ if isinstance(n, dict)), known_ids)
+        p += llm.check_ids(a.get("summary", "") + a.get("explanation", "") + " ".join(str(n.get("text")) for n in notes_ if isinstance(n, dict)), known_ids)
         return p
 
     return llm.ask("remediate", f"{ch['package']}@{ch['from']}->{ch['to']}", SYSTEM, user, validate)

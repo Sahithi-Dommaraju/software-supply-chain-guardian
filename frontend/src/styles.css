@@ -315,3 +315,8 @@ button.reject { background: var(--bad); color: #2a0606; }
 .decided { font-size: 13.5px; } .decided.approved { color: var(--ok); } .decided.rejected { color: var(--bad); }
 @media (max-width: 1000px) { .fix-grid { grid-template-columns: 1fr; } .pipeline { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .badge.cancelled, .badge.cancelling { background: rgba(251, 191, 36, .15); color: var(--warn); }
+.explain { background: var(--panel-2); border-radius: 8px; padding: 12px 14px; margin: 10px 0; }
+.explain-label { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 4px; }
+.explain p { margin: 0; font-size: 14.5px; line-height: 1.55; }
+.details-toggle { margin-left: auto; font-family: inherit !important; font-size: 13px !important; }
+.fix-details { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 6px; }

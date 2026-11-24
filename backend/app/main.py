@@ -49,7 +49,7 @@ def get_scan(scan_id: str):
 class Decision(BaseModel):
     card_id: str
     decision: Literal["approved", "rejected"]
-    decided_by: str = Field(min_length=1, max_length=80)
+    decided_by: str = Field(default="reviewer", max_length=80)
     note: str = Field(default="", max_length=1000)
 
 
@@ -62,7 +62,7 @@ def decide(scan_id: str, d: Decision):
     cards = {c["id"] for c in scan["results"].get("remediate", {}).get("cards", [])}
     if d.card_id not in cards:
         raise HTTPException(404, "Fix card not found in this scan")
-    return db.decide(scan_id, d.card_id, d.decision, d.decided_by.strip(), d.note.strip())
+    return db.decide(scan_id, d.card_id, d.decision, d.decided_by.strip() or "reviewer", d.note.strip())
 
 
 @app.post("/api/scans/{scan_id}/cancel")

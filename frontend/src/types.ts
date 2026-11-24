@@ -130,6 +130,7 @@ export interface FixCard {
   score_before: number; score_after: number; band_after?: string
   evidence: { registry?: string[]; changelog?: string }; usage_snippets?: Snippet[]
   ai: AiResult; compatibility: { jump: string | null; breaking_risk: string | null }
+  plain?: { text: string; source: 'AI' | 'rule' }
 }
 
 export interface Decision { card_id: string; decision: 'approved' | 'rejected'; decided_by: string; note: string; decided_at: string }
