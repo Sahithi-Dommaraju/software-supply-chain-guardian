@@ -242,7 +242,9 @@ def run(state: dict) -> tuple[dict, dict]:
                                  "breaking_risk": card["ai"]["answer"]["breaking_risk"] if card["ai"].get("ok") else None}
     # supply-chain risks without a CVE: nothing to upgrade to, so freeze the reviewed version and escalate
     for r in state.get("risks", []):
-        if "supply-chain risk" in r["labels"] and "known malware" not in r["labels"]:
+        if "repo config" in r["labels"]:
+            cards.append(config_card(r, state))
+        elif "supply-chain risk" in r["labels"] and "known malware" not in r["labels"]:
             cards.append(pin_card(r, paths, root))
     # malware is never "upgraded": it gets its own card
     for r in state.get("risks", []):
@@ -266,6 +268,52 @@ def run(state: dict) -> tuple[dict, dict]:
                     + (f"; {len(errors)} could not be planned" if errors else ""),
     }
     return {"fixes": cards}, public
+
+
+CONFIG_FIX = {
+    "unpinned-action": ("Pin the action to a full commit SHA",
+                        "This workflow step uses another author's GitHub Action through a tag that its owner can move "
+                        "to new code at any time, and that code would run in your CI with your secrets. Pinning it to "
+                        "the exact commit (the SHA the tag points to today) means it can only change when you change it."),
+    "base-image": ("Pin the base image by digest",
+                   "The container is built on an image reference that can point to different contents over time. "
+                   "Adding the image's @sha256 digest locks the exact image you tested; update it on purpose when needed."),
+    "build-install": ("Install from the lockfile, never run downloaded scripts",
+                      "The image build installs or runs code that is not locked to known versions. Use 'npm ci' with a "
+                      "committed package-lock.json (and --ignore-scripts where possible), and download files with a "
+                      "checksum check instead of piping them into a shell."),
+    "workflow-risk": ("Restrict the workflow trigger and permissions",
+                      "This workflow can give untrusted input, for example from a fork's pull request, access to your "
+                      "repository's token or secrets. Use the 'pull_request' trigger (or never check out the PR's code), "
+                      "set the smallest 'permissions:' needed, and pass event text through environment variables."),
+}
+
+
+def config_card(r: dict, state: dict) -> dict:
+    inv = next((i for i in state.get("investigations", []) if i["component"] == r["component"]), {})
+    rule = inv.get("rule", "workflow-risk")
+    title, why = CONFIG_FIX.get(rule, CONFIG_FIX["workflow-risk"])
+    file, line, text = inv.get("file", ""), inv.get("line"), inv.get("text", "")
+    suggestion = {
+        "unpinned-action": f"-  {text}\n+  {text.split('@')[0]}@<40-character commit SHA>  # {text.split('@')[-1]}",
+        "base-image": f"-{text}\n+{text.split(' AS ')[0]}@sha256:<digest of this image>",
+        "build-install": f"-{text}\n+RUN npm ci --omit=dev   # with package-lock.json committed",
+        "workflow-risk": f"-{text}\n+# use 'pull_request', least-privilege 'permissions:', and env: for event text",
+    }.get(rule, "")
+    score = r["final_score"]
+    return {
+        "id": hashlib.sha1(f"fix|{r['component']}".encode()).hexdigest()[:12], "risk_id": r["id"], "rank": r["rank"],
+        "package": r["package"], "version": "", "band": r["band"], "action": "config",
+        "title": f"{title}: {file}:{line}", "change": None,
+        "patch": f"--- {file}\n+++ {file}\n@@ line {line} @@\n{suggestion}",
+        "rollback": {"version": "", "how": f"Revert the change to {file}."},
+        "advisories_removed": [], "cves_removed": [], "remaining": [], "score_before": score, "score_after": 0.0,
+        "band_after": "low", "evidence": {"investigation": inv.get("verdict"), "file": file, "line": line},
+        "ai": {"ok": False, "reason": "configuration change: no package upgrade to review"},
+        "compatibility": {"jump": "none", "breaking_risk": "low"},
+        "packages": [{"package": r["package"], "version": "", "band": r["band"], "score_before": score, "score_after": 0.0}],
+        "plain": {"source": "rule", "text": why},
+    }
 
 
 def pin_card(r: dict, paths: dict, root: Path) -> dict:

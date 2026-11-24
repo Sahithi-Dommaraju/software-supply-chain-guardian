@@ -96,4 +96,28 @@ if __name__ == "__main__":
     assert by["odd-dev"]["final_score"] == 3.0                                 # 6.0 x U 0.5
     assert by["cvepkg"]["final_score"] == 4.0 and "raised to 4.0" in by["cvepkg"]["formula"]   # 3.0 floored
     assert len(pub["risks"]) == 4
+
+    # Repo config findings: built-in checks, then rows and cards
+    from app.agents.investigate_config import checks
+    ev = lambda text: {"file": "x.yml", "line": 3, "text": text}
+    f = lambda rule, text: {"rule": rule, "evidence": ev(text), "title": "t", "rationale": "r"}
+    assert checks(f("unpinned-action", "uses: actions/checkout@v4"), [])[0] == "harmless"
+    assert checks(f("unpinned-action", "uses: someone/tool@main"), [])[0] == "risky"
+    assert checks(f("base-image", "FROM node:20"), [])[0] == "harmless"
+    assert checks(f("base-image", "FROM alpine"), [])[0] == "risky"
+    assert checks(f("base-image", "FROM bob/node:20"), [])[0] == "risky"
+    assert checks(f("base-image", "FROM gcr.io/distroless/nodejs24-debian13:nonroot"), [])[0] == "harmless"
+    assert checks(f("build-install", "RUN curl -s https://x.sh | sh"), [])[0] == "risky"
+    assert checks(f("build-install", "RUN npm install -g typescript@5"), [])[0] == "harmless"
+    assert checks(f("build-install", "RUN npm install --omit=dev"), [])[0] == "risky"
+    wf = ["on: pull_request_target", "steps:", "  - uses: actions/checkout@v4",
+          "    with: { ref: ${{ github.event.pull_request.head.sha }} }"]
+    assert checks(f("workflow-risk", "on: pull_request_target"), wf)[0] == "malicious"
+    cfg = {"component": "config:x.yml:3", "verdict": "risky", "basis": "rule", "package": "x.yml:3", "rule": "base-image",
+           "file": "x.yml", "line": 3, "text": "FROM alpine"}
+    _, pub = prioritize.run({"components": [], "paths": {}, "workdir": ".", "vulnerabilities": [], "investigations": [cfg]})
+    row = pub["risks"][0]
+    assert row["final_score"] == 6.0 and "repo config" in row["labels"] and row["package"] == "x.yml:3"
+    card = remediate.config_card(row, {"investigations": [cfg]})
+    assert card["action"] == "config" and "digest" in card["title"] and card["score_after"] == 0.0
     print("day2 ok")

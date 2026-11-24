@@ -145,6 +145,8 @@ def run(state: dict) -> tuple[dict, dict]:
     risks = []
     for cid, vs in by_comp.items():
         c = comps.get(cid, {})
+        if cid.startswith("config:"):  # repo config finding: U, D, P are 1.0 (it is the repo itself)
+            c = {"name": verdicts[cid]["package"], "version": "", "scope": "config", "direct": True}
         path = paths.get(cid) or []
         inv = verdicts.get(cid)
         scored = [v["cvss_score"] for v in vs if v.get("cvss_score") is not None]
@@ -160,13 +162,15 @@ def run(state: dict) -> tuple[dict, dict]:
         my_cves = sorted({x for v in vs for x in v.get("cves", [])})
         kev_hits = [x for x in my_cves if x in kev]
         epss_max = max((epss[x]["epss"] for x in my_cves if x in epss), default=None)
-        U = 0.5 if c.get("scope") == "dev" else 1.0
+        U = 0.5 if c.get("scope") == "dev" else 1.0  # "config" scope counts as production
         D = 1.0 if c.get("direct") else 0.8
         P = 0.6 if c.get("scope") == "optional" or c.get("platform") else 1.0
         E = 1.3 if kev_hits or (epss_max is not None and epss_max >= 0.1) else 1.0
         base = round(min(10.0, cvss * U * D * P * E), 1)
         mal = sorted({x for v in vs for x in [v["advisory_id"], *v["aliases"]] if x.startswith("MAL-")})
         labels = ["supply-chain risk"] if not vs else []
+        if cid.startswith("config:"):
+            labels.append("repo config")
         if vs and inv and inv["verdict"] == "risky":
             labels.append("investigation: risky")
         if mal or (inv and inv["verdict"] == "malicious"):

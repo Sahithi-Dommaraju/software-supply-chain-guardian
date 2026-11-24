@@ -37,6 +37,7 @@ import time
 from pathlib import Path
 
 from .. import db, llm
+from . import investigate_config
 from .discovery import NPM
 
 FLAG_RULES = {"install-script", "typosquat", "unexpected-origin"}
@@ -311,18 +312,22 @@ def run(state: dict) -> tuple[dict, dict]:
         if i["mal_advisories"]:  # a malware advisory is a tool fact; the AI may not overrule it
             i.update(verdict="malicious", basis="fact")
 
+    config_items = investigate_config.run(state)  # workflow / Dockerfile findings: read lines, no downloads
     counts = {v: sum(i["verdict"] == v for i in items) for v in ("malicious", "risky", "harmless", "unknown")}
+    config_counts = {v: sum(i["verdict"] == v for i in config_items) for v in ("malicious", "risky", "harmless")}
     ai_ok = sum(bool(i["ai"].get("ok")) for i in items)
     public = {
         "items": items, "counts": counts, "guarddog": gd_run,
+        "config_items": config_items, "config_counts": config_counts,
         "not_investigated": [f"{comps[k]['name']}@{comps[k]['version']}" for k in skipped], "llm": {**llm.status(), "answered": ai_ok,
                                                                         "tokens": sum(i["ai"].get("tokens", 0) for i in items if not i["ai"].get("cached"))},
         "_status": "done" if ai_ok == len(items) else "partial",
         "_summary": f"{len(items)} packages: {counts['malicious']} malicious, {counts['risky']} risky, "
-                    f"{counts['harmless']} harmless, {counts['unknown']} need review"
+                    f"{counts['harmless']} harmless, {counts['unknown']} need review; {len(config_items)} config "
+                    f"findings: {config_counts['malicious'] + config_counts['risky']} risky or worse"
                     + ("" if llm.API_KEY else " (AI unavailable: no API key)"),
     }
-    return {"investigations": items}, public
+    return {"investigations": items + config_items}, public
 
 
 def llm_request(i: dict, files: dict, known_ids: set) -> dict:
