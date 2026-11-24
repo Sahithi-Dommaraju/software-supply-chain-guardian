@@ -70,7 +70,7 @@ export default function App() {
 }
 
 function Home({ onScan }: { onScan: (id: string) => void }) {
-  const [url, setUrl] = useState('https://github.com/juice-shop/juice-shop')
+  const [url, setUrl] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [scans, setScans] = useState<ScanSummary[]>([])

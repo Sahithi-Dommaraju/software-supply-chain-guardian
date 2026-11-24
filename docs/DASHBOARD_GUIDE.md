@@ -742,7 +742,7 @@ contract), `styles.css`.
 
 ### Home page
 
-* **Scan box**: paste a public GitHub URL (pre-filled with Juice Shop) and press **Start scan**. Invalid
+* **Scan box**: paste a public GitHub URL (empty by default; the placeholder shows the format) and press **Start scan**. Invalid
   URLs show the backend's error under the box. If the backend is not running you see "Backend not
   reachable on port 8000".
 * **Recent scans**: the last 50 scans with repository, short commit SHA, status badge and start time.
