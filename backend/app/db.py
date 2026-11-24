@@ -26,10 +26,10 @@ AGENTS = [
     ("vulnerability", "Vulnerability Detection"),
     ("change_detection", "Suspicious-Change Detection"),
     ("evidence", "Investigation & Evidence"),
-    ("investigate", "Investigate (Day 2)"),
-    ("prioritize", "Prioritize (Day 2)"),
-    ("remediate", "Recommend Fix (Day 2)"),
-    ("approval", "Human Approval (Day 2)"),
+    ("investigate", "Investigate"),
+    ("prioritize", "Prioritize"),
+    ("remediate", "Recommend Fix"),
+    ("approval", "Human Approval"),
 ]
 PLANNED: set[str] = set()  # agents listed but not built yet show as "planned"
 

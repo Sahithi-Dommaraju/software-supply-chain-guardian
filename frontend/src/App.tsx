@@ -221,8 +221,7 @@ function ScanPage({ id, theme }: { id: string; theme: Theme }) {
 
       <nav className="tabs">
         {TABS.map(([key, label]) => (
-          <button key={key} className={`${tab === key ? 'active' : ''} ${key === 'investigate' ? 'day2-start' : ''}`} onClick={() => setTab(key)}>
-            {key === 'investigate' && <span className="day-tag">Day 2</span>}
+          <button key={key} className={`${tab === key ? 'active' : ''}`} onClick={() => setTab(key)}>
             {label}
             {scan.agents[key]?.status === 'planned' && <span className="soon">planned</span>}
           </button>

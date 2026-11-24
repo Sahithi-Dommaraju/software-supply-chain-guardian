@@ -287,9 +287,6 @@ td > .level:first-child { margin-left: 0; }
 .trash:hover:not(:disabled) { background: rgba(248, 113, 113, .14); border-color: rgba(248, 113, 113, .4); }
 .trash:disabled { color: var(--muted); opacity: .4; }
 
-/* Day 2 */
-.day-tag { font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 0 4px; margin-right: 6px; }
-.tabs button.day2-start { margin-left: 12px; border-left: 1px solid var(--border); padding-left: 18px; }
 .llm-banner { padding: 10px 14px; border-radius: 8px; margin-bottom: 14px; font-size: 13px; }
 .llm-banner.ok { background: rgba(45, 212, 191, .1); border: 1px solid rgba(45, 212, 191, .35); }
 .llm-banner.off { background: rgba(251, 191, 36, .1); border: 1px solid rgba(251, 191, 36, .4); }

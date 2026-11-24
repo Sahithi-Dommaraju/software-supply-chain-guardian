@@ -19,7 +19,7 @@ export default function Report({ scanId, data, repoUrl, sha }: {
     <div className="report">
       <section className="card sbom-head">
         <div>
-          <div className="eyebrow">Day 1 evidence report</div>
+          <div className="eyebrow">Evidence report</div>
           <h2>{r.repository} @ <span className="mono">{r.commit_sha.slice(0, 12)}</span></h2>
           <div className="muted small">
             Generated {r.generated_at} · {r.inventory.components} components · {r.by_type.vulnerability} vulnerability
@@ -43,7 +43,7 @@ export default function Report({ scanId, data, repoUrl, sha }: {
 
       <div className="two-col">
         <section className="card">
-          <h2>Day 1 acceptance checklist</h2>
+          <h2>Acceptance checklist</h2>
           <ul className="checklist">
             {r.checklist.map((c) => <li key={c.item} className={c.done ? 'ok' : 'no'}><span>{c.done ? '✓' : '✕'}</span>{c.item}</li>)}
           </ul>

@@ -146,7 +146,7 @@ def run(state: dict) -> tuple[dict, dict]:
     gaps += [f"{s['manifest']}: vulnerability scan {s['status']} ({s.get('error') or s.get('reason')})"
              for s in res.get("vulnerability", {}).get("scans", []) if s["status"] != "ok"]
     gaps += [f"{n['rule']}: {n['reason']}" for n in res.get("change_detection", {}).get("not_applicable", [])]
-    gaps.append("Reachability and exploitability are not analysed for any finding (Day 2).")
+    gaps.append("Reachability and exploitability are not analysed in this report (see Prioritized risks).")
     agents = [{"name": a["name"], "status": a["status"], "summary": a.get("summary")}
               for k, a in scan["agents"].items() if k != "evidence"]
     risk_counts = {lvl: sum(b["initial_risk"]["level"] == lvl for b in bundles) for lvl in RISK_ORDER}
