@@ -106,7 +106,7 @@ def parse_npm_lock(lock: dict, project_id: str, components: dict, edges: set, wa
         c = components.setdefault(cid, {
             "id": cid, "name": name, "version": meta.get("version", ""), "ecosystem": "npm",
             "purl": cid, "direct": False, "scope": scope, "license": meta.get("license"),
-            "origin": origin_of(meta.get("resolved")), "resolved": meta.get("resolved"),
+            "origin": "bundled" if meta.get("inBundle") else origin_of(meta.get("resolved")), "resolved": meta.get("resolved"),
             "integrity": meta.get("integrity"), "install_script": bool(meta.get("hasInstallScript")),
             "platform": meta.get("os") or meta.get("cpu"),  # OS/CPU-restricted (e.g. fsevents)
             "projects": [], "install_paths": 0,

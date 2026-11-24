@@ -17,7 +17,8 @@ rather than silently skipped. The rules that apply to a single snapshot:
 """
 import hashlib
 
-TRUSTED_ORIGINS = {"registry.npmjs.org", "registry.yarnpkg.com", "pypi.org", "proxy.golang.org"}
+TRUSTED_ORIGINS = {"registry.npmjs.org", "registry.yarnpkg.com", "pypi.org", "proxy.golang.org",
+                   "bundled"}  # bundled = shipped inside its parent's tarball (lockfile inBundle)
 
 # Popular npm package names that typosquatters imitate. ponytail: static list; swap for
 # the npm download-count top 1000 if false negatives matter.
@@ -88,7 +89,7 @@ def run(state: dict) -> tuple[dict, dict]:
                 "Install scripts execute arbitrary code on every machine that installs the package "
                 "(developer laptops, CI, image builds). A hijacked release of this package would run there.",
                 {"source": "lockfile", "field": "hasInstallScript: true", "resolved": c["resolved"]}, c, p))
-        if c["origin"] not in TRUSTED_ORIGINS:
+        if c["origin"] not in TRUSTED_ORIGINS and c["origin"] != "unknown":
             sev = "low" if c["origin"] == "local" else "high"
             out.append(finding(
                 "unexpected-origin", "Package source", f"{c['name']}@{c['version']} comes from {c['origin']}",
@@ -145,6 +146,7 @@ def run(state: dict) -> tuple[dict, dict]:
         elif "curl" in msg.lower() or "Pipes" in msg or "unsafe-perm" in msg or "ADD from" in msg:
             out.append(finding("build-install", "Container", msg, "high", "fact", msg + ".", ev))
 
+    no_resolved = sum(c["origin"] == "unknown" for c in state["components"])
     order = {"high": 0, "medium": 1, "low": 2}
     out.sort(key=lambda f: (order[f["severity"]], f["rule"], f["name"] or ""))
     by_rule = {}
@@ -157,6 +159,7 @@ def run(state: dict) -> tuple[dict, dict]:
     ]
     public = {
         "findings": out, "by_rule": by_rule, "not_applicable": not_applicable,
+        "origin_unknown": no_resolved,  # lockfile entries without a "resolved" URL: origin not checkable
         "counts": {s: sum(f["severity"] == s for f in out) for s in ("high", "medium", "low")},
         "_summary": f"{len(out)} findings across {len(by_rule)} rules ("
                     + ", ".join(f"{n} {r}" for r, n in sorted(by_rule.items(), key=lambda x: -x[1])[:3]) + ")",
