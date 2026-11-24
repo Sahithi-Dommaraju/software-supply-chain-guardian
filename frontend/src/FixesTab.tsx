@@ -56,6 +56,7 @@ function Card({ c, scanId, who, decision, onDecided }: { c: FixCard; scanId: str
         <div>
           <div className="small muted">#{c.rank} · {c.package}@{c.version} · <span className="chip">{c.action}</span></div>
           <h2>{c.title}</h2>
+          {c.also_fixes && <div className="small muted">Also fixes {c.also_fixes.join(', ')}</div>}
         </div>
         <div className="score-move"><span className={`sev ${c.band}`}>{c.score_before.toFixed(1)}</span> → <span className={`sev ${c.band_after ?? 'low'}`}>{c.score_after.toFixed(1)}</span></div>
       </div>

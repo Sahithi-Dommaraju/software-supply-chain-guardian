@@ -20,8 +20,11 @@ export default function InvestigationTab({ data }: { data: NonNullable<Results['
       <p className="small muted">
         Each package flagged by Suspicious-Change Detection (install script, typosquat lookalike, unexpected origin) or
         listed in OSV as malware is downloaded with <code>npm pack --ignore-scripts</code> (never installed or run),
-        compared with the lockfile hash, and scanned with {gd.tool ?? 'GuardDog'}
-        {gd.status === 'ok' && gd.seconds != null ? ` (${gd.seconds}s)` : gd.status === 'cached' ? ' (cached results)' : ` — ${gd.status}${gd.reason ? `: ${gd.reason}` : ''}`}.
+        compared with the lockfile hash, and its install hooks and the files they run are checked for downloads,
+        command execution, obfuscation, secret access and outbound URLs. Deep scan with GuardDog:{' '}
+        {gd.status === 'off' ? 'off (set GUARDIAN_GUARDDOG=on in backend/.env to enable)'
+          : gd.status === 'ok' ? `${gd.tool} (${gd.seconds}s)` : gd.status === 'cached' ? `${gd.tool} (cached results)`
+          : `${gd.status}${gd.reason ? `: ${gd.reason}` : ''}`}.
       </p>
       <section className="card">
         <table className="table">
@@ -42,7 +45,8 @@ export default function InvestigationTab({ data }: { data: NonNullable<Results['
                   <td className="small">
                     <div>{i.tarball.integrity_match ? '✓ tarball matches lockfile hash' : i.tarball.error ? `✕ ${i.tarball.error}` : '✕ tarball hash differs from lockfile'}</div>
                     <div>{i.install_scripts.length ? i.install_scripts.map((h) => <div key={h.hook} className="mono">{h.hook}: {h.command}</div>) : 'no install hooks'}</div>
-                    <div>GuardDog: {i.guarddog.hits.length ? i.guarddog.hits.map((h) => h.rule).join(', ') : i.guarddog.status === 'ok' ? 'no matches' : i.guarddog.status}</div>
+                    <div>Static checks: {i.static?.hits.length ? [...new Set(i.static.hits.map((h) => h.rule))].join(', ') : 'no matches'}</div>
+                    {i.guarddog.status !== 'off' && <div>GuardDog: {i.guarddog.hits.length ? i.guarddog.hits.map((h) => h.rule).join(', ') : i.guarddog.status === 'ok' ? 'no matches' : i.guarddog.status}</div>}
                     {i.mal_advisories.length > 0 && <div className="note">OSV malware: {i.mal_advisories.join(', ')}</div>}
                   </td>
                   <td className="small">{i.reason}</td>
@@ -52,12 +56,13 @@ export default function InvestigationTab({ data }: { data: NonNullable<Results['
                     <div className="row-between"><b>Evidence</b><AiNote ai={i.ai} /></div>
                     {i.evidence.length > 0 && <ul className="small">{i.evidence.map((e, n) => <li key={n} className="mono">{e.file}:{e.line} {e.quote && `“${e.quote}”`}</li>)}</ul>}
                     {i.rule_verdict !== i.verdict && <p className="small muted">Rule-only verdict would be: {i.rule_verdict} ({i.rule_reason})</p>}
-                    {i.guarddog.hits.map((h, n) => <div key={n} className="small"><span className="chip">{h.rule}</span> <span className="mono">{h.file}:{h.line}</span> {h.message}</div>)}
+                    {[...(i.static?.hits ?? []), ...i.guarddog.hits].map((h, n) => <div key={n} className="small"><span className="chip">{h.rule}</span> <span className="mono">{h.file}:{h.line}</span> {h.message}{h.code && <span className="mono muted"> — {h.code}</span>}</div>)}
                     {Object.entries(i.code).map(([file, lines]) => (
                       <CodeView key={file} file={file} lines={file === 'package.json' && i.hook_lines?.length
                         ? lines.slice(Math.max(0, i.hook_lines[0] - 4), i.hook_lines[i.hook_lines.length - 1] + 3) : lines}
                         start={file === 'package.json' && i.hook_lines?.length ? Math.max(1, i.hook_lines[0] - 3) : 1}
-                        highlight={[...(file === 'package.json' ? i.hook_lines ?? [] : []), ...i.evidence.filter((e) => e.file === file).map((e) => e.line)]} />
+                        highlight={[...(file === 'package.json' ? i.hook_lines ?? [] : []), ...i.evidence.filter((e) => e.file === file).map((e) => e.line),
+                          ...(i.static?.hits ?? []).filter((h) => h.file === file).map((h) => h.line)]} />
                     ))}
                   </td></tr>
                 )}
@@ -66,6 +71,8 @@ export default function InvestigationTab({ data }: { data: NonNullable<Results['
           </tbody>
         </table>
         {data.items.length === 0 && <p className="muted">No package needed investigation.</p>}
+        {!!data.not_investigated?.length && <p className="small muted">Not investigated (limit of 25 per scan; lower priority):{' '}
+          <span className="mono">{data.not_investigated.join(', ')}</span></p>}
       </section>
     </div>
   )
