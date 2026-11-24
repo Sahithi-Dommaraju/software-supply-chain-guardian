@@ -58,4 +58,23 @@ if __name__ == "__main__":
     assert rule_verdict([], hits)[0] == "risky" and rule_verdict(["MAL-2023-1"], [])[0] == "malicious"
     benign = static_checks({"package.json": ['"install": "node-gyp rebuild"']}, hook_lines=[1])
     assert rule_verdict([], benign)[0] == "unknown", benign
+    # Batching: 12 items -> 3 calls; an item failing validation is retried alone in one extra call
+    import json as _json
+    calls = []
+
+    def fake_chat(system, prompt):
+        ids = [l.split("=", 1)[1] for l in prompt.splitlines() if l.startswith("ITEM id=")]
+        calls.append(ids)
+        bad = "p3" in ids and len(calls) == 1  # first answer for p3 is invalid
+        return _json.dumps({"answers": [{"id": i, "v": "bad" if (bad and i == "p3") else "ok"} for i in ids]}), {}
+    llm._chat, llm.API_KEY = fake_chat, "test"
+    reqs = [{"subject": f"p{n}", "user": f"item {n}", "validate": lambda a: [] if a.get("v") == "ok" else ["v must be ok"]}
+            for n in range(12)]
+    res = llm.ask_batch("t", "sys", reqs)
+    assert all(r["ok"] for r in res.values()) and len(res) == 12, res
+    assert len(calls) == 4 and calls[1] == ["p3"], calls          # 3 batches + 1 retry of the failed item only
+    assert res["p3"]["attempts"] == 2 and "id" not in res["p0"]["answer"]
+    calls.clear()
+    assert all(r.get("cached") for r in llm.ask_batch("t", "sys", reqs).values()) and calls == []  # rescan: 0 calls
+    llm.API_KEY = ""
     print("day2 ok")

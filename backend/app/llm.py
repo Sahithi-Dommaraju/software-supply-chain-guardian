@@ -46,7 +46,8 @@ def _chat(system: str, user: str) -> tuple[str, dict]:
     global _client
     if _client is None:
         from openai import OpenAI
-        _client = OpenAI(api_key=API_KEY, base_url=BASE_URL, timeout=60, max_retries=2)
+        # at most one automatic retry (rate limit / 5xx) so the call count stays predictable
+        _client = OpenAI(api_key=API_KEY, base_url=BASE_URL, timeout=90, max_retries=1)
     r = _client.chat.completions.create(
         model=MODEL, temperature=0, response_format={"type": "json_object"},
         messages=[{"role": "system", "content": system}, {"role": "user", "content": user}])
@@ -83,6 +84,76 @@ def ask(task: str, subject: str, system: str, user: str, validate) -> dict:
                   + "\nAnswer again, fixing these problems, as JSON only.")
     return {"ok": False, "reason": "needs human review: AI answer failed validation twice",
             "problems": problems, "tokens": tokens}
+
+
+BATCH = 5
+BATCH_RULES = """
+
+You will receive several ITEMS, each starting with a line "ITEM id=<id>". Judge each item on its
+own, using only that item's evidence. Reply with ONE JSON object:
+{"answers": [{"id": "<the item id>", ...the fields described above...}, ...]}
+with exactly one answer per item."""
+
+
+def _key(task: str, subject: str, system: str, user: str) -> str:
+    return f"{task}|{MODEL}|{subject}|{hashlib.sha1((system + user).encode()).hexdigest()[:16]}"
+
+
+def ask_batch(task: str, system: str, requests: list[dict]) -> dict[str, dict]:
+    """Like ask(), for many items at once: BATCH items per API call, cache per item, and one retry
+    call per batch that re-sends only the items whose answers failed the Validator.
+    requests: [{"subject": unique id, "user": prompt text, "validate": fn(answer) -> problems}]
+    returns {subject: result}. Calls per run = ceil(uncached / BATCH) + at most one retry each."""
+    out, pending = {}, []
+    for r in requests:
+        cached = db.cache_get(_key(task, r["subject"], system, r["user"]))
+        if cached:
+            out[r["subject"]] = {**cached, "cached": True}
+        elif not API_KEY:
+            out[r["subject"]] = {"ok": False, "reason": "AI explanation unavailable: no API key configured"}
+        else:
+            pending.append(r)
+    for start in range(0, len(pending), BATCH):
+        todo, problems, calls = pending[start:start + BATCH], {}, 0
+        for attempt in (1, 2):
+            prompt = "\n\n".join(
+                f"ITEM id={r['subject']}\n{r['user']}"
+                + (("\nYour previous answer for this item was rejected by the validator:\n- "
+                    + "\n- ".join(problems[r["subject"]]) + "\nFix these problems.") if r["subject"] in problems else "")
+                for r in todo)
+            try:
+                raw, usage = _chat(system + BATCH_RULES, prompt)
+                calls += 1
+                answers = json.loads(raw).get("answers")
+                by_id = {str(a.get("id")): a for a in answers if isinstance(a, dict)} if isinstance(answers, list) else {}
+            except Exception as e:
+                if "json" not in str(e).lower():  # network, auth, rate limit: keep the rule results
+                    for r in todo:
+                        out[r["subject"]] = {"ok": False, "reason": f"AI explanation unavailable: {type(e).__name__}: {str(e)[:200]}"}
+                    todo = []
+                    break
+                by_id, usage = {}, {}  # model returned invalid JSON: counts as a failed answer
+            share = sum(usage.values()) // max(1, len(todo))
+            failed = []
+            for r in todo:
+                a = by_id.get(r["subject"])
+                p = ["no answer was given for this item"] if a is None else r["validate"](a)
+                if p:
+                    problems[r["subject"]] = p
+                    failed.append(r)
+                    continue
+                a = {k: v for k, v in a.items() if k != "id"}
+                result = {"ok": True, "answer": a, "model": MODEL, "attempts": attempt, "tokens": share,
+                          "batch_size": len(todo), "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+                db.cache_put(_key(task, r["subject"], system, r["user"]), result)
+                out[r["subject"]] = result
+            todo = failed
+            if not todo:
+                break
+        for r in todo:
+            out[r["subject"]] = {"ok": False, "reason": "needs human review: AI answer failed validation twice",
+                                 "problems": problems.get(r["subject"], [])}
+    return out
 
 
 # ---------------------------------------------------------------- shared Validator checks

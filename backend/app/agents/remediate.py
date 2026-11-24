@@ -215,20 +215,25 @@ def run(state: dict) -> tuple[dict, dict]:
         except Exception as e:  # registry down etc.: keep going, say which card is missing
             errors.append({"package": r["package"], "error": f"{type(e).__name__}: {str(e)[:200]}"})
             continue
+        cards.append(card)
+    cards = merge_same_change(cards)  # merge first, so the AI reviews each change once
+    requests = []
+    for card in cards:
         ch = card.get("change")
         if ch and card["action"] != "replace":
             notes, source = changelog(ch["package"], ver(ch["from"]), ver(ch["to"]))
             card["evidence"]["changelog"] = source
             snippets = find_usages(root, [ch["package"]])
             card["usage_snippets"] = snippets
-            card["ai"] = review(card, notes, snippets, root, known_ids)
-        else:
-            card["ai"] = {"ok": False, "reason": "no change to review"}
+            requests.append(review(card, notes, snippets, root, known_ids))
+    answers = llm.ask_batch("remediate", SYSTEM, requests)  # 5 fix cards per API call
+    for card in cards:
+        ch = card.get("change")
+        subject = f"{ch['package']}@{ch['from']}->{ch['to']}" if ch else None
+        card["ai"] = answers.get(subject) or {"ok": False, "reason": "no change to review"}
         card["plain"] = plain_explanation(card)
         card["compatibility"] = {"jump": (ch or {}).get("jump"),
                                  "breaking_risk": card["ai"]["answer"]["breaking_risk"] if card["ai"].get("ok") else None}
-        cards.append(card)
-    cards = merge_same_change(cards)
     # malware is never "upgraded": it gets its own card
     for r in state.get("risks", []):
         if "known malware" in r["labels"]:
@@ -329,4 +334,4 @@ def review(card: dict, notes: str, snippets: list, root: Path, known_ids: set) -
         p += llm.check_ids(a.get("summary", "") + a.get("explanation", "") + " ".join(str(n.get("text")) for n in notes_ if isinstance(n, dict)), known_ids)
         return p
 
-    return llm.ask("remediate", f"{ch['package']}@{ch['from']}->{ch['to']}", SYSTEM, user, validate)
+    return {"subject": f"{ch['package']}@{ch['from']}->{ch['to']}", "user": user, "validate": validate}

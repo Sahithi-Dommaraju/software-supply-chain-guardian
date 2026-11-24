@@ -279,6 +279,7 @@ def run(state: dict) -> tuple[dict, dict]:
 
     # 5-6: rule verdict, then LLM
     known_ids = {x for v in state.get("vulnerabilities", []) for x in [v["advisory_id"], *v["aliases"]]}
+    requests = []
     for i in items:
         files = i.pop("files")
         i["hook_lines"] = [n for n, l in enumerate(files.get("package.json", []), 1) if any(f'"{h}"' in l for h in HOOKS)]
@@ -292,7 +293,13 @@ def run(state: dict) -> tuple[dict, dict]:
         i["code"] = {f: lines[:80] for f, lines in files.items() if f != "package.json"}
         if "package.json" in files:
             i["code"]["package.json"] = files["package.json"]
-        i["ai"] = investigate_with_llm(i, files, known_ids) if files else {"ok": False, "reason": "tarball unavailable"}
+        if files:
+            requests.append(llm_request(i, files, known_ids))
+        else:
+            i["ai"] = {"ok": False, "reason": "tarball unavailable"}
+    answers = llm.ask_batch("investigate", SYSTEM, requests)  # 5 packages per API call
+    for i in items:
+        i.setdefault("ai", answers.get(f"{i['package']}@{i['version']}", {"ok": False, "reason": "not asked"}))
         if i["ai"].get("ok"):
             a = i["ai"]["answer"]
             i.update(verdict=a["verdict"], confidence=round(float(a["confidence"]), 2), basis="AI inference",
@@ -318,7 +325,7 @@ def run(state: dict) -> tuple[dict, dict]:
     return {"investigations": items}, public
 
 
-def investigate_with_llm(i: dict, files: dict, known_ids: set) -> dict:
+def llm_request(i: dict, files: dict, known_ids: set) -> dict:
     gd = "\n".join(f"- {h['rule']} at {h['file']}:{h['line']}: {h['code']}"
                    for h in i["static"]["hits"] + i["guarddog"]["hits"]) or "none"
     hit_lines: dict[str, list] = {}
@@ -350,4 +357,4 @@ def investigate_with_llm(i: dict, files: dict, known_ids: set) -> dict:
             p.append("'reason' must be a short explanation")
         return p
 
-    return llm.ask("investigate", f"{i['package']}@{i['version']}", SYSTEM, user, validate)
+    return {"subject": f"{i['package']}@{i['version']}", "user": user, "validate": validate}
