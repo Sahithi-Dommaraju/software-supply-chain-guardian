@@ -7,9 +7,11 @@ from pathlib import Path
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from typing import Literal
 
-from . import db, pipeline
+from pydantic import BaseModel, Field
+
+from . import db, llm, pipeline
 from .agents.checkout import GITHUB_URL
 
 app = FastAPI(title="Software Supply Chain Guardian")
@@ -39,7 +41,28 @@ def get_scan(scan_id: str):
     scan = db.get(scan_id)
     if not scan:
         raise HTTPException(404, "Scan not found")
+    scan["decisions"] = db.decisions(scan_id)  # kept apart from the immutable scan record
+    scan["llm"] = llm.status()
     return scan
+
+
+class Decision(BaseModel):
+    card_id: str
+    decision: Literal["approved", "rejected"]
+    decided_by: str = Field(min_length=1, max_length=80)
+    note: str = Field(default="", max_length=1000)
+
+
+@app.post("/api/scans/{scan_id}/decisions")
+def decide(scan_id: str, d: Decision):
+    """Human Approval: record who approved or rejected a fix card, when, and why."""
+    scan = db.get(scan_id)
+    if not scan:
+        raise HTTPException(404, "Scan not found")
+    cards = {c["id"] for c in scan["results"].get("remediate", {}).get("cards", [])}
+    if d.card_id not in cards:
+        raise HTTPException(404, "Fix card not found in this scan")
+    return db.decide(scan_id, d.card_id, d.decision, d.decided_by.strip(), d.note.strip())
 
 
 def _force_remove(func, path, _exc):

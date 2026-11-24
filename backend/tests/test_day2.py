@@ -1,0 +1,47 @@
+"""Run: .venv/Scripts/python -m tests.test_day2   (no network, no API key needed)"""
+import os
+import tempfile
+
+os.environ["GUARDIAN_DATA_DIR"] = tempfile.mkdtemp()
+os.environ.pop("GROQ_API_KEY", None)
+os.environ.pop("GUARDIAN_LLM_API_KEY", None)
+
+from semantic_version import Version  # noqa: E402
+
+from app import llm  # noqa: E402
+from app.agents import prioritize, remediate  # noqa: E402
+
+if __name__ == "__main__":
+    # Validator building blocks
+    files = {"a.js": ["const x = require('bson')", "x.deserialize(buf)"]}
+    assert llm.check_citations({"e": [{"file": "a.js", "line": 2, "quote": "x.deserialize"}]}, "e", files) == []
+    assert llm.check_citations({"e": [{"file": "a.js", "line": 9}]}, "e", files)          # line outside file
+    assert llm.check_citations({"e": [{"file": "b.js", "line": 1}]}, "e", files)          # file not shown
+    assert llm.check_citations({"e": [{"file": "a.js", "line": 1, "quote": "nope"}]}, "e", files)  # bad quote
+    assert llm.check_number({"n": 3}, "n", -2, 2) and not llm.check_number({"n": -2}, "n", -2, 2)
+    assert llm.check_ids("see CVE-2020-7610", {"CVE-2020-7610"}) == []
+    assert llm.check_ids("see CVE-1999-0001", {"CVE-2020-7610"})                         # invented id
+    # No key: the pipeline still gets a clean "unavailable" result
+    r = llm.ask("t", "x@1", "s", "u", lambda a: [])
+    assert not r["ok"] and "unavailable" in r["reason"]
+
+    # Prioritize bands and reachability factor
+    assert [prioritize.band(s) for s in (9.0, 7.0, 4.0, 3.9)] == ["critical", "high", "medium", "low"]
+    assert prioritize.R_FACTOR == {"reachable": 1.0, "unknown": 1.0, "not_reachable": 0.7}
+    # bson example: 9.8 x 1.0 x 0.8 x 1.0 x 1.0 = 7.8 -> high
+    assert round(min(10, 9.8 * 1.0 * 0.8 * 1.0 * 1.0), 1) == 7.8
+
+    # Recommend Fix: chain resolution against a fake registry
+    remediate._packuments.update({
+        "mongodb": {"versions": {"2.1.18": {"dependencies": {"mongodb-core": "1.3.18"}},
+                                 "3.0.0": {"dependencies": {"mongodb-core": "3.0.0"}}}},
+        "mongodb-core": {"versions": {"1.3.18": {"dependencies": {"bson": "~0.4.19"}},
+                                      "3.0.0": {"dependencies": {"bson": "~1.0.4"}}}},
+        "bson": {"versions": {"0.4.23": {}, "1.0.4": {}, "1.1.4": {}}},
+    })
+    t, steps = remediate.walk_chain(["mongodb", "mongodb-core", "bson"], Version("3.0.0"))
+    assert str(t) == "1.0.4" and [s["package"] for s in steps] == ["mongodb", "mongodb-core", "bson"]
+    t, _ = remediate.walk_chain(["mongodb", "mongodb-core", "bson"], Version("2.1.18"))
+    assert str(t) == "0.4.23"
+    assert remediate.jump(Version("2.1.18"), Version("3.0.0")) == "major"
+    print("day2 ok")
