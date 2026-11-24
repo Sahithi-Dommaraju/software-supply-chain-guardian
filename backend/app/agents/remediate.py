@@ -20,15 +20,18 @@ the snippets shown. Without the LLM the card still has the rule-based jump type.
 import hashlib
 import json
 import re
+import os
 import urllib.parse
+import urllib.request
 from pathlib import Path
 
 from semantic_version import NpmSpec, Version
 
-from .. import llm
+from .. import llm  # noqa: F401  (importing llm loads backend/.env)
 from .prioritize import band, fetch_json, find_usages
 
 MAX_CARDS = 15
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")  # optional; read after llm loads backend/.env
 REGISTRY = "https://registry.npmjs.org/"
 
 SYSTEM = """You review a proposed npm dependency upgrade for breaking changes. Use ONLY the changelog
@@ -102,6 +105,9 @@ def manifest_spec(root: Path, project_path: str, name: str) -> tuple[str | None,
     return None, None, pj.relative_to(root).as_posix()
 
 
+_releases: dict[str, list] = {}
+
+
 def changelog(name: str, frm: Version, to: Version) -> tuple[str, str]:
     repo = (packument(name).get("repository") or {})
     url = repo.get("url", "") if isinstance(repo, dict) else str(repo)
@@ -110,9 +116,15 @@ def changelog(name: str, frm: Version, to: Version) -> tuple[str, str]:
         return "", "no GitHub repository listed on the registry"
     api = f"https://api.github.com/repos/{m.group(1)}/{m.group(2)}/releases?per_page=100"
     try:
-        rel = fetch_json(api, 30)
+        if api not in _releases:
+            req = urllib.request.Request(api, headers={"User-Agent": "supply-chain-guardian",
+                                                       **({"Authorization": f"Bearer {GITHUB_TOKEN}"} if GITHUB_TOKEN else {})})
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                _releases[api] = json.load(resp)
+        rel = _releases[api]
     except Exception as e:
-        return "", f"GitHub releases unavailable ({str(e)[:80]})"
+        hint = "" if GITHUB_TOKEN else "; set GITHUB_TOKEN in backend/.env to raise GitHub's 60 requests/hour limit"
+        return "", f"GitHub releases unavailable ({str(e)[:80]}{hint})"
     picked = []
     for r in rel:
         v = ver(re.sub(r"^[^\d]*", "", r.get("tag_name", "")))
@@ -151,7 +163,16 @@ def plan_fix(r: dict, comps: dict, paths: dict, root: Path) -> dict:
         if ok:
             candidate = v
             break
-    if candidate is not None:
+    if candidate is not None and candidate == d_current and len(chain) > 1:
+        t_after = t_new if t_new else None
+        change = {"package": T, "from": r["version"], "to": str(t_after) if t_after else "removed", "spec_from": None,
+                  "spec_to": None, "field": "lockfile", "manifest": manifest.replace("package.json", "package-lock.json"),
+                  "jump": jump(current_t, t_after) if current_t and t_after else "n/a"}
+        action = "relock"
+        title = (f"Refresh the lockfile: {D} {d_current} already allows {T} {t_after} (npm update {T})")
+        patch = f"npm update {T}   # rewrites package-lock.json only; package.json is unchanged"
+        rollback = {"version": r["version"], "how": "Restore the previous package-lock.json from git."}
+    elif candidate is not None:
         t_after = need if len(chain) == 1 else (t_new if t_new else None)
         spec_to = f"^{candidate}"
         change = {"package": D, "from": str(d_current), "to": str(candidate), "spec_from": spec_from, "spec_to": spec_to,
@@ -203,6 +224,7 @@ def run(state: dict) -> tuple[dict, dict]:
         card["compatibility"] = {"jump": (ch or {}).get("jump"),
                                  "breaking_risk": card["ai"]["answer"]["breaking_risk"] if card["ai"].get("ok") else None}
         cards.append(card)
+    cards = merge_same_change(cards)
     # malware is never "upgraded": it gets its own card
     for r in state.get("risks", []):
         if "known malware" in r["labels"]:
@@ -220,6 +242,35 @@ def run(state: dict) -> tuple[dict, dict]:
                     + (f"; {len(errors)} could not be planned" if errors else ""),
     }
     return {"fixes": cards}, public
+
+
+def merge_same_change(cards: list) -> list:
+    """One card per change: several vulnerable versions fixed by the same change (e.g. three minimist
+    versions), or several upgrades of the same package you control (kept at the highest target,
+    which also contains the lower fixes), become one card."""
+    out, seen = [], {}
+    for c in cards:
+        ch = c.get("change")
+        upgrade = c["action"] in ("upgrade", "upgrade-parent")
+        key = ("upgrade", ch["package"]) if ch and upgrade else (c["action"], ch["package"], ch["to"]) if ch else None
+        if key and key in seen:
+            first = seen[key]
+            if upgrade and ver(ch["to"]) > ver(first["change"]["to"]):
+                for k in ("change", "patch", "resolution", "target_after", "title", "evidence", "usage_snippets", "ai",
+                          "compatibility"):
+                    if k in c:
+                        first[k] = c[k]
+                first["score_before"] = max(first["score_before"], c["score_before"])
+            first["score_after"] = max(first["score_after"], c["score_after"])
+            first.setdefault("also_fixes", []).append(f"{c['package']}@{c['version']}")
+            first["advisories_removed"] = sorted(set(first["advisories_removed"]) | set(c["advisories_removed"]))
+            first["cves_removed"] = sorted(set(first["cves_removed"]) | set(c["cves_removed"]))
+            first["remaining"] = sorted(set(first["remaining"]) | set(c["remaining"]))
+            continue
+        if key:
+            seen[key] = c
+        out.append(c)
+    return out
 
 
 def review(card: dict, notes: str, snippets: list, root: Path, known_ids: set) -> dict:
