@@ -141,6 +141,18 @@ export interface FixCard {
   packages?: { package: string; version: string; band: string; score_before: number; score_after: number }[]
 }
 
+export interface Validation {
+  card_id: string; status: string; reason?: string; branch?: string; workspace?: string; card_title?: string
+  steps?: { name: string; status: string; detail: string; at: string; mode?: string; log?: string; diff?: string }[]
+  comparison?: { target_fixed: boolean; summary: string; new_high_risk: string[]
+                 sbom_diff: { added: string[]; removed: string[]; changed: string[] }
+                 new_advisories: { package: string; id: string; severity: string }[]
+                 new_suspicious: { title: string; severity: string; rule: string }[]
+                 advisories_before: number; advisories_after: number }
+  build?: { status: string; mode?: string; detail: string; log?: string }
+  ai?: AiResult
+}
+
 export interface Decision { card_id: string; decision: 'approved' | 'rejected'; decided_by: string; note: string; decided_at: string }
 export interface LlmStatus { enabled: boolean; model: string; base_url: string; answered?: number; candidates?: number; tokens?: number }
 
@@ -221,6 +233,7 @@ export interface Scan {
   agents: Record<string, Agent>
   results: Results
   decisions?: Record<string, Decision>
+  validations?: Record<string, Validation>
   llm?: LlmStatus
 }
 

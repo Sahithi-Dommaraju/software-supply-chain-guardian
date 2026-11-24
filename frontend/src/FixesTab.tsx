@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import type { Decision, FixCard, Results, Risk } from './types'
+import type { Decision, FixCard, Results, Risk, Validation } from './types'
+import { ValidationBadge } from './ValidationTab'
 import { AiNote, Snippets } from './Day2Common'
 
 type Pkg = NonNullable<FixCard['packages']>[number]
@@ -20,8 +21,9 @@ function packagesOf(c: FixCard, risks: Risk[]): Pkg[] {
   return list.sort((a, b) => Number(a.package !== changed) - Number(b.package !== changed) || b.score_before - a.score_before)
 }
 
-export default function FixesTab({ scanId, data, decisions, onDecided, risks = [] }: {
+export default function FixesTab({ scanId, data, decisions, onDecided, risks = [], validations = {} }: {
   scanId: string; data: NonNullable<Results['remediate']>; decisions: Record<string, Decision>; onDecided: () => void; risks?: Risk[]
+  validations?: Record<string, Validation>
 }) {
   const decided = Object.values(decisions)
   return (
@@ -32,13 +34,13 @@ export default function FixesTab({ scanId, data, decisions, onDecided, risks = [
         {decided.filter((d) => d.decision === 'rejected').length} rejected · {data.cards.length - decided.length} waiting
       </p>
       {data.errors.length > 0 && <div className="alert">Could not plan a fix for: {data.errors.map((e) => `${e.package} (${e.error})`).join('; ')}</div>}
-      {data.cards.map((c) => <Card key={c.id} c={c} pkgs={packagesOf(c, risks)} scanId={scanId} decision={decisions[c.id]} onDecided={onDecided} />)}
+      {data.cards.map((c) => <Card key={c.id} c={c} pkgs={packagesOf(c, risks)} scanId={scanId} decision={decisions[c.id]} validation={validations[c.id]} onDecided={onDecided} />)}
       {data.cards.length === 0 && <div className="card muted">No critical or high risks to fix.</div>}
     </div>
   )
 }
 
-function Card({ c, pkgs, scanId, decision, onDecided }: { c: FixCard; pkgs: Pkg[]; scanId: string; decision?: Decision; onDecided: () => void }) {
+function Card({ c, pkgs, scanId, decision, validation, onDecided }: { c: FixCard; pkgs: Pkg[]; scanId: string; decision?: Decision; validation?: Validation; onDecided: () => void }) {
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const [open, setOpen] = useState(false)
@@ -80,6 +82,7 @@ function Card({ c, pkgs, scanId, decision, onDecided }: { c: FixCard; pkgs: Pkg[
         {decision ? (
           <div className={`decided ${decision.decision}`}>
             {decision.decision === 'approved' ? '✓ Approved' : '✕ Rejected'} · {new Date(decision.decided_at).toLocaleString()}
+            {' '}<ValidationBadge v={validation} />
           </div>
         ) : (
           <>

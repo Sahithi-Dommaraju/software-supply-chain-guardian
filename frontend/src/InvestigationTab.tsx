@@ -1,14 +1,27 @@
 import { Fragment, useState } from 'react'
-import type { ConfigItem, Results } from './types'
+import type { ConfigItem, Results, SuspiciousFinding } from './types'
 import { AiNote, CodeView, LlmBanner } from './Day2Common'
 
 const VERDICT_CLASS: Record<string, string> = { malicious: 'critical', risky: 'high', harmless: 'low', unknown: 'unrated' }
 
-export default function InvestigationTab({ data }: { data: NonNullable<Results['investigate']> }) {
+const PACKAGE_RULES = new Set(['install-script', 'typosquat', 'unexpected-origin'])
+const CONFIG_RULES = new Set(['unpinned-action', 'base-image', 'build-install', 'workflow-risk'])
+
+export default function InvestigationTab({ data, suspicious }: { data: NonNullable<Results['investigate']>; suspicious: SuspiciousFinding[] }) {
   const [open, setOpen] = useState<string | null>(null)
   const gd = data.guarddog
+  // reconcile with the Suspicious changes tab: every finding is either investigated or a repo-wide rule fact
+  const pkgFindings = suspicious.filter((f) => PACKAGE_RULES.has(f.rule))
+  const cfgFindings = suspicious.filter((f) => CONFIG_RULES.has(f.rule))
+  const ruleFacts = suspicious.filter((f) => !PACKAGE_RULES.has(f.rule) && !CONFIG_RULES.has(f.rule))
   return (
     <div className="day2">
+      <div className="reconcile small">
+        <b>{suspicious.length} suspicious findings</b> = {pkgFindings.length} package findings
+        ({data.items.length} packages investigated{data.not_investigated?.length ? `, ${data.not_investigated.length} over the limit of 25` : ''})
+        {' '}+ {cfgFindings.length} config findings ({data.config_items?.length ?? 0} investigated)
+        {' '}+ {ruleFacts.length} repo-wide rule fact{ruleFacts.length === 1 ? '' : 's'} (not investigated, see below)
+      </div>
       <LlmBanner llm={data.llm} what="judged each flagged package" />
       <div className="kpis">
         {(['malicious', 'risky', 'harmless', 'unknown'] as const).map((v) => (
@@ -75,6 +88,16 @@ export default function InvestigationTab({ data }: { data: NonNullable<Results['
         </table>
         {data.items.length === 0 && <p className="muted">No package needed investigation.</p>}
         {!!data.config_items?.length && <ConfigTable items={data.config_items} />}
+        {ruleFacts.length > 0 && (
+          <div className="small">
+            <h2 className="section-title">Not investigated (repo-wide rule facts)</h2>
+            <p className="muted">These describe the whole project, not a package or a file line, so there is nothing for the agent to inspect.</p>
+            <ul>{ruleFacts.map((f) => (
+              <li key={f.id}><span className="chip">{f.rule}</span> {f.title}. {f.rule === 'no-lockfile'
+                ? 'Fix: commit a package-lock.json so every install gets the versions that were scanned.' : f.rationale}</li>
+            ))}</ul>
+          </div>
+        )}
         {!!data.not_investigated?.length && <p className="small muted">Not investigated (limit of 25 per scan; lower priority):{' '}
           <span className="mono">{data.not_investigated.join(', ')}</span></p>}
       </section>

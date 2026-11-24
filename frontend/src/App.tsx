@@ -10,6 +10,7 @@ import Report from './Report'
 import InvestigationTab from './InvestigationTab'
 import RisksTab from './RisksTab'
 import FixesTab from './FixesTab'
+import ValidationTab from './ValidationTab'
 
 const TABS = [
   ['overview', 'Overview'],
@@ -22,6 +23,7 @@ const TABS = [
   ['investigate', 'Investigation'],
   ['prioritize', 'Prioritized risks'],
   ['remediate', 'Fixes & approval'],
+  ['validation', 'Validation & report'],
 ] as const
 type Tab = (typeof TABS)[number][0]
 
@@ -184,7 +186,8 @@ function ScanPage({ id, theme }: { id: string; theme: Theme }) {
       if (r?.ok) {
         const s: Scan = await r.json()
         setScan(s)
-        if (s.status === 'completed' || s.status === 'failed' || s.status === 'cancelled') return
+        const validating = Object.values(s.validations ?? {}).some((v) => v.status === 'queued' || v.status === 'running')
+        if ((s.status === 'completed' || s.status === 'failed' || s.status === 'cancelled') && !validating) return
       }
       timer = window.setTimeout(load, 2000)
     }
@@ -246,14 +249,18 @@ function ScanPage({ id, theme }: { id: string; theme: Theme }) {
           ? <Suspicious data={scan.results.change_detection} label={label} repoUrl={scan.repo_url} sha={scan.commit_sha} />
           : <Waiting agent={scan.agents.change_detection} />)}
         {tab === 'investigate' && (scan.results.investigate
-          ? <InvestigationTab data={scan.results.investigate} />
+          ? <InvestigationTab data={scan.results.investigate} suspicious={scan.results.change_detection?.findings ?? []} />
           : <Waiting agent={scan.agents.investigate ?? { name: 'Investigate', status: 'planned' }} />)}
         {tab === 'prioritize' && (scan.results.prioritize
           ? <RisksTab data={scan.results.prioritize} />
           : <Waiting agent={scan.agents.prioritize ?? { name: 'Prioritize', status: 'planned' }} />)}
         {tab === 'remediate' && (scan.results.remediate
           ? <FixesTab scanId={scan.id} data={scan.results.remediate} decisions={scan.decisions ?? {}} onDecided={() => setTick((t) => t + 1)}
-                       risks={scan.results.prioritize?.risks} />
+                       risks={scan.results.prioritize?.risks} validations={scan.validations ?? {}} />
+          : <Waiting agent={scan.agents.remediate ?? { name: 'Recommend Fix', status: 'planned' }} />)}
+        {tab === 'validation' && (scan.results.remediate
+          ? <ValidationTab scanId={scan.id} cards={scan.results.remediate.cards} validations={scan.validations ?? {}}
+                           onRerun={() => setTick((t) => t + 1)} />
           : <Waiting agent={scan.agents.remediate ?? { name: 'Recommend Fix', status: 'planned' }} />)}
         {tab === 'evidence' && (scan.results.evidence
           ? <Report scanId={scan.id} data={scan.results.evidence} repoUrl={scan.repo_url} sha={scan.commit_sha} />
