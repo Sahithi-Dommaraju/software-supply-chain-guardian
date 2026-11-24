@@ -14,6 +14,13 @@ output shows up on the dashboard.
 | 6 | Vulnerability detection | built | OSV-Scanner on each lockfile (online, or offline with `GUARDIAN_OSV_OFFLINE=1`); CVSS band or advisory label, fixed version, introduction path; Trivy cross-check when installed |
 | 7 | Suspicious-change detection | built | Install scripts, non-registry origins, typosquat lookalikes, missing lockfiles, unpinned Actions/base images, risky workflows, Dockerfile installs |
 | 8 | Investigation & evidence | built | Evidence bundle per finding (facts / inference / unknowns, initial risk), Day 1 checklist, `report.md` + `report.json` |
+| 9 | Investigate (Day 2) | built | `npm pack --ignore-scripts` each flagged package (never run), tarball hash vs lockfile, static checks on install hooks (download/exec/obfuscation/secrets/URLs), OSV `MAL-`; optional GuardDog deep scan; AI verdict malicious/risky/harmless with file:line |
+| 10 | Prioritize (Day 2) | built | `min(10, CVSS × U × D × P × E × R)` with CISA KEV + EPSS; AI only labels reachability (Reachable / Unknown / Not reachable → R 1.0 / 1.0 / 0.7) |
+| 11 | Recommend Fix (Day 2) | built | Lowest upgrade of the package you control that resolves to a fixed version (npm registry), else lockfile refresh or `overrides`; rollback, jump type, AI changelog review |
+| 12 | Human Approval (Day 2) | built | Approve / Reject per fix card with name, time and note (`decisions` table); nothing is applied to the repo |
+
+Every AI answer passes a plain-code Validator (cited files/lines exist, values in range, no invented IDs);
+failures fall back to the rule result. Without an API key everything still runs, rule-based.
 
 No repository code runs during a scan. Nothing is cloned until a URL is submitted.
 
@@ -36,6 +43,9 @@ First time only:
 cd backend; uv venv .venv; uv pip install --python .venv -r requirements.txt; cd ..
 cd frontend; npm install; cd ..
 ```
+
+For AI explanations, copy `backend/.env.example` to `backend/.env` and set `GROQ_API_KEY`
+(optional: `GUARDIAN_LLM_MODEL`, `GITHUB_TOKEN`, `GUARDIAN_GUARDDOG=on`). Restart the backend after any change.
 
 Then, in two terminals (backend first):
 
