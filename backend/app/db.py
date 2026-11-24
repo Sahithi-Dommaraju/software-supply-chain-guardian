@@ -26,6 +26,10 @@ AGENTS = [
     ("vulnerability", "Vulnerability Detection"),
     ("change_detection", "Suspicious-Change Detection"),
     ("evidence", "Investigation & Evidence"),
+    ("investigate", "Investigate (Day 2)"),
+    ("prioritize", "Prioritize (Day 2)"),
+    ("remediate", "Recommend Fix (Day 2)"),
+    ("approval", "Human Approval (Day 2)"),
 ]
 PLANNED: set[str] = set()  # agents listed but not built yet show as "planned"
 
@@ -109,5 +113,45 @@ def save_findings(scan_id: str, bundles: list[dict]) -> None:
 def delete(scan_id: str) -> None:
     with _lock:
         _db.execute("DELETE FROM findings WHERE scan_id=?", (scan_id,))
+        _db.execute("DELETE FROM decisions WHERE scan_id=?", (scan_id,))
         _db.execute("DELETE FROM scans WHERE id=?", (scan_id,))
         _db.commit()
+
+
+# ---------------------------------------------------------------- Day 2: LLM cache, approval decisions
+_db.execute("CREATE TABLE IF NOT EXISTS llm_cache (key TEXT PRIMARY KEY, value TEXT, created_at REAL)")
+_db.execute(
+    "CREATE TABLE IF NOT EXISTS decisions (scan_id TEXT, card_id TEXT, decision TEXT, decided_by TEXT,"
+    " note TEXT, decided_at TEXT, PRIMARY KEY (scan_id, card_id))"
+)
+_db.commit()
+
+
+def cache_get(key: str) -> dict | None:
+    with _lock:
+        row = _db.execute("SELECT value FROM llm_cache WHERE key=?", (key,)).fetchone()
+    return json.loads(row[0]) if row else None
+
+
+def cache_put(key: str, value: dict) -> None:
+    with _lock:
+        _db.execute("INSERT OR REPLACE INTO llm_cache VALUES (?,?,?)", (key, json.dumps(value), time.time()))
+        _db.commit()
+
+
+def decide(scan_id: str, card_id: str, decision: str, by: str, note: str) -> dict:
+    row = {"card_id": card_id, "decision": decision, "decided_by": by, "note": note,
+           "decided_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    with _lock:
+        _db.execute("INSERT OR REPLACE INTO decisions VALUES (?,?,?,?,?,?)",
+                    (scan_id, card_id, decision, by, note, row["decided_at"]))
+        _db.commit()
+    return row
+
+
+def decisions(scan_id: str) -> dict[str, dict]:
+    with _lock:
+        rows = _db.execute("SELECT card_id, decision, decided_by, note, decided_at FROM decisions WHERE scan_id=?",
+                           (scan_id,)).fetchall()
+    keys = ("card_id", "decision", "decided_by", "note", "decided_at")
+    return {r[0]: dict(zip(keys, r)) for r in rows}
