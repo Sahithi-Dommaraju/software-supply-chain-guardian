@@ -104,3 +104,10 @@ def save_findings(scan_id: str, bundles: list[dict]) -> None:
     with _lock:
         _db.executemany("INSERT OR REPLACE INTO findings VALUES (?,?,?,?,?,?,?,?,?,?)", rows)
         _db.commit()
+
+
+def delete(scan_id: str) -> None:
+    with _lock:
+        _db.execute("DELETE FROM findings WHERE scan_id=?", (scan_id,))
+        _db.execute("DELETE FROM scans WHERE id=?", (scan_id,))
+        _db.commit()

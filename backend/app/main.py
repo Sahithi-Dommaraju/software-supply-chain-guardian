@@ -1,3 +1,7 @@
+import os
+import re
+import shutil
+import stat
 from pathlib import Path
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
@@ -36,6 +40,28 @@ def get_scan(scan_id: str):
     if not scan:
         raise HTTPException(404, "Scan not found")
     return scan
+
+
+def _force_remove(func, path, _exc):
+    # git marks pack files read-only; Windows refuses to delete those until the flag is cleared
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
+
+
+@app.delete("/api/scans/{scan_id}", status_code=204)
+def delete_scan(scan_id: str):
+    """Remove a scan: its DB rows, its evidence folder and the cloned repo."""
+    if not re.fullmatch(r"[0-9a-f]{12}", scan_id):  # ids are generated hex; also blocks path tricks
+        raise HTTPException(404, "Scan not found")
+    scan = db.get(scan_id)
+    if not scan:
+        raise HTTPException(404, "Scan not found")
+    if scan["status"] in ("queued", "running"):
+        raise HTTPException(409, "Scan is still running; wait for it to finish before deleting it")
+    db.delete(scan_id)
+    for folder in (db.DATA / "workspaces" / scan_id, db.DATA / "scans" / scan_id):
+        if folder.exists():
+            shutil.rmtree(folder, onerror=_force_remove)
 
 
 @app.get("/api/scans/{scan_id}/artifacts/{name}")

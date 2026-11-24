@@ -76,6 +76,17 @@ function Home({ onScan }: { onScan: (id: string) => void }) {
   const [scans, setScans] = useState<ScanSummary[]>([])
   useEffect(() => { fetch('/api/scans').then((r) => r.json()).then(setScans).catch(() => {}) }, [])
 
+  async function remove(s: ScanSummary) {
+    const ok = confirm(`Delete the scan of ${shortRepo(s.repo_url)} from ${when(s.created_at)}?
+
+`
+      + 'This permanently removes its results, evidence files and the cloned repository from this computer.')
+    if (!ok) return
+    const r = await fetch(`/api/scans/${s.id}`, { method: 'DELETE' }).catch(() => null)
+    if (r?.ok) return setScans((all) => all.filter((x) => x.id !== s.id))
+    setError(r ? (await r.json()).detail ?? 'Delete failed' : 'Backend not reachable on port 8000')
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     setBusy(true)
@@ -110,7 +121,7 @@ function Home({ onScan }: { onScan: (id: string) => void }) {
         <section className="card">
           <h2>Recent scans</h2>
           <table className="table">
-            <thead><tr><th>Repository</th><th>Commit</th><th>Status</th><th>Started</th></tr></thead>
+            <thead><tr><th>Repository</th><th>Commit</th><th>Status</th><th>Started</th><th aria-label="Delete" /></tr></thead>
             <tbody>
               {scans.map((s) => (
                 <tr key={s.id} className="clickable" onClick={() => onScan(s.id)}>
@@ -118,6 +129,17 @@ function Home({ onScan }: { onScan: (id: string) => void }) {
                   <td className="mono">{s.commit_sha?.slice(0, 12) ?? '—'}</td>
                   <td><span className={`badge ${s.status}`}>{s.status}</span></td>
                   <td>{when(s.created_at)}</td>
+                  <td className="row-action">
+                    <button className="trash" onClick={(e) => { e.stopPropagation(); remove(s) }}
+                            disabled={s.status === 'queued' || s.status === 'running'}
+                            title={s.status === 'running' || s.status === 'queued' ? 'Wait for the scan to finish' : 'Delete scan and its cloned repo'}
+                            aria-label={`Delete scan of ${shortRepo(s.repo_url)}`}>
+                      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor"
+                           strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6" />
+                      </svg>
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
