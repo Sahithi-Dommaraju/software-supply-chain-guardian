@@ -7,8 +7,10 @@ The Suspicious-Change findings that are lines in the repo's own files, not packa
   workflow-risk    pull_request_target / write-all / ${{ github.event... }} in scripts -> workflow file
 ("no-lockfile" is a repo-wide fact with nothing to judge, so it stays a rule finding.)
 
-For each: read the lines around the finding, run built-in checks, then the AI gives
-malicious / risky / harmless with file:line (5 findings per call), checked by the same Validator.
+For each: read the lines around the finding and run built-in checks. Findings the checks rate risky
+or malicious then go to the AI, which confirms or corrects the verdict with file:line (5 per call),
+checked by the same Validator. Findings the checks rate harmless rest on checkable facts (GitHub's own
+action, an official image with a version tag, a pinned global tool) and keep the rule verdict.
 
 Rule verdicts (used when the AI is unavailable or fails validation):
   unpinned-action  publisher actions/* or github/* -> harmless; anyone else -> risky;
@@ -119,8 +121,8 @@ def run(state: dict) -> list[dict]:
                 "rule_verdict": verdict, "rule_reason": reason, "snippet": {"file": f["evidence"]["file"],
                                                                            "start": start, "lines": window}}
         items.append(item)
-        if window:
-            files = {f["evidence"]["file"]: lines}
+        if window and verdict != "harmless":  # harmless rests on checkable facts (GitHub's own action,
+            files = {f["evidence"]["file"]: lines}  # official image + tag, pinned tool): no AI needed
             shown = set(range(start, start + len(window)))
             user = (f"Finding: {f['title']} (rule {f['rule']})\nWhy it was flagged: {f['rationale']}\n"
                     f"Built-in checks: {json.dumps([h['message'] for h in hits])}\n\n"
@@ -140,7 +142,9 @@ def run(state: dict) -> list[dict]:
             requests.append({"subject": label + "|" + f["rule"], "user": user, "validate": validate})
     answers = llm.ask_batch("investigate-config", SYSTEM, requests)  # 5 findings per API call
     for i in items:
-        i["ai"] = answers.get(i["package"] + "|" + i["rule"], {"ok": False, "reason": "file not readable"})
+        i["ai"] = answers.get(i["package"] + "|" + i["rule"], {"ok": False, "reason": (
+            "not asked: the built-in checks found a trusted, stable reference" if i["rule_verdict"] == "harmless"
+            else "file not readable")})
         if i["ai"].get("ok"):
             a = i["ai"]["answer"]
             i.update(verdict=a["verdict"], confidence=round(float(a["confidence"]), 2), basis="AI inference",

@@ -12,10 +12,13 @@ export default function InvestigationTab({ data }: { data: NonNullable<Results['
       <LlmBanner llm={data.llm} what="judged each flagged package" />
       <div className="kpis">
         {(['malicious', 'risky', 'harmless', 'unknown'] as const).map((v) => (
-          <div key={v} className="kpi"><div className={`kpi-value sev-text ${VERDICT_CLASS[v]}`}>{data.counts[v] ?? 0}</div>
-            <div className="kpi-label">{v === 'unknown' ? 'needs review' : v}</div></div>
+          <div key={v} className="kpi"><div className={`kpi-value sev-text ${VERDICT_CLASS[v]}`}>{(data.counts[v] ?? 0) + (data.config_counts?.[v] ?? 0)}</div>
+            <div className="kpi-label">{v === 'unknown' ? 'needs review' : v}</div>
+            <div className="kpi-hint">{data.counts[v] ?? 0} packages + {data.config_counts?.[v] ?? 0} config</div></div>
         ))}
         <div className="kpi"><div className="kpi-value">{data.items.length}</div><div className="kpi-label">Packages investigated</div></div>
+        <div className="kpi"><div className="kpi-value">{data.config_items?.length ?? 0}</div><div className="kpi-label">Config findings investigated</div>
+          {data.config_counts && <div className="kpi-hint">{(data.config_counts.malicious ?? 0) + (data.config_counts.risky ?? 0)} risky or worse</div>}</div>
       </div>
       <p className="small muted">
         Each package flagged by Suspicious-Change Detection (install script, typosquat lookalike, unexpected origin) or
