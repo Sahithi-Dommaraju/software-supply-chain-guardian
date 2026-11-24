@@ -81,7 +81,7 @@ function Card({ c, scanId, decision, onDecided }: { c: FixCard; scanId: string; 
               {ch ? <p className="mono small">{ch.package}: {ch.from} → {ch.to} <span className="chip">{ch.jump} jump</span><br />{ch.manifest} · {ch.field}</p>
                   : <p className="small">No version change possible.</p>}
               {c.patch && <pre className="code diff">{c.patch}</pre>}
-              {c.also_fixes && <p className="small muted">Also fixes {c.also_fixes.join(', ')}</p>}
+              {c.packages && c.packages.length > 1 && <p className="small muted">Fixes {c.packages.map((p) => `${p.package} ${p.version}`).join(' and ')} in one change</p>}
             </div>
             <div>
               <h3>Risk reduction</h3>

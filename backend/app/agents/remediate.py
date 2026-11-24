@@ -220,6 +220,9 @@ def run(state: dict) -> tuple[dict, dict]:
                              "score_before": card["score_before"], "score_after": card["score_after"]}]
         cards.append(card)
     cards = merge_same_change(cards)  # merge first, so the AI reviews each change once
+    for card in cards:  # the package being changed first, then the ones it pulls in
+        changed = (card.get("change") or {}).get("package")
+        card["packages"].sort(key=lambda p: (p["package"] != changed, -p["score_before"]))
     requests = []
     for card in cards:
         ch = card.get("change")
