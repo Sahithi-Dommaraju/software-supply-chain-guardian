@@ -77,4 +77,23 @@ if __name__ == "__main__":
     calls.clear()
     assert all(r.get("cached") for r in llm.ask_batch("t", "sys", reqs).values()) and calls == []  # rescan: 0 calls
     llm.API_KEY = ""
+
+    # Prioritize: Investigate verdicts become ranked rows (no network: feeds stubbed)
+    prioritize.load_kev = lambda: (set(), {"status": "ok"})
+    prioritize.load_epss = lambda cves: ({}, {"status": "ok"})
+    comp = lambda n, direct=True, scope="runtime": {"id": f"pkg:npm/{n}@1.0.0", "name": n, "version": "1.0.0",
+                                                    "direct": direct, "scope": scope}
+    comps = [comp("evil"), comp("odd"), comp("odd-dev", scope="dev"), comp("cvepkg")]
+    vuln = {"component": "pkg:npm/cvepkg@1.0.0", "advisory_id": "GHSA-x", "aliases": [], "cves": [], "cvss_score": 3.0,
+            "severity": "low", "title": "t", "fix": "2.0.0", "url": "u"}
+    inv = lambda n, v: {"component": f"pkg:npm/{n}@1.0.0", "verdict": v, "basis": "fact"}
+    _, pub = prioritize.run({"components": comps, "paths": {}, "workdir": ".", "vulnerabilities": [vuln],
+                             "investigations": [inv("evil", "malicious"), inv("odd", "risky"), inv("odd-dev", "risky"),
+                                                inv("cvepkg", "risky")]})
+    by = {r["package"]: r for r in pub["risks"]}
+    assert by["evil"]["final_score"] == 10.0 and "known malware" in by["evil"]["labels"]
+    assert by["odd"]["final_score"] == 6.0 and by["odd"]["band"] == "medium" and "supply-chain risk" in by["odd"]["labels"]
+    assert by["odd-dev"]["final_score"] == 3.0                                 # 6.0 x U 0.5
+    assert by["cvepkg"]["final_score"] == 4.0 and "raised to 4.0" in by["cvepkg"]["formula"]   # 3.0 floored
+    assert len(pub["risks"]) == 4
     print("day2 ok")

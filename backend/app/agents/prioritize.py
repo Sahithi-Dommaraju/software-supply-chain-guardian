@@ -22,6 +22,10 @@ become Unknown. No LLM (no key, offline) -> everything Unknown -> the plain form
 
 Safety: items that are critical before R, on CISA KEV, or known malware are never lowered.
 Overrides: known malware (OSV MAL- advisory, or Investigate verdict "malicious") -> 10.
+Supply-chain risks from Investigate (one row per package):
+  - package with CVEs and verdict "risky": its CVE row, floored at 4.0 (medium), verdict shown
+  - package with no CVE and verdict "risky": a "supply-chain risk" row, CVSS stand-in 6.0, then
+    × U × D × P (no E: no CVE to be exploited; no R: nothing to reach) -> e.g. 6.0 prod direct
 No fixed version published -> score kept, label "no fix: needs review".
 Bands: critical >= 9, high >= 7, medium >= 4, low < 4.
 Order: band, then Reachable > Unknown > Not reachable, then score.
@@ -39,6 +43,8 @@ from .. import db, llm
 KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
 EPSS_URL = "https://api.first.org/data/v1/epss?cve="
 LABEL_SCORE = {"critical": 9.0, "high": 7.5, "medium": 5.0, "low": 2.0}
+SUPPLY_SCORE = {"malicious": 10.0, "risky": 6.0}  # stand-in "CVSS" for Investigate verdicts without a CVE
+RISKY_FLOOR = 4.0  # a CVE package that Investigate also found risky is never ranked below medium
 R_FACTOR = {"reachable": 1.0, "unknown": 1.0, "not_reachable": 0.7}
 BAND_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 REACH_ORDER = {"reachable": 0, "unknown": 1, "not_reachable": 2}
@@ -128,8 +134,8 @@ def run(state: dict) -> tuple[dict, dict]:
     by_comp: dict[str, list] = {}
     for v in state.get("vulnerabilities", []):
         by_comp.setdefault(v["component"], []).append(v)
-    for cid, inv in verdicts.items():  # malware found by Investigate without any CVE still gets ranked
-        if inv["verdict"] == "malicious":
+    for cid, inv in verdicts.items():  # malicious/risky packages are ranked even without any CVE
+        if inv["verdict"] in SUPPLY_SCORE:
             by_comp.setdefault(cid, [])
 
     cves = sorted({c for vs in by_comp.values() for v in vs for c in v.get("cves", [])})
@@ -140,8 +146,11 @@ def run(state: dict) -> tuple[dict, dict]:
     for cid, vs in by_comp.items():
         c = comps.get(cid, {})
         path = paths.get(cid) or []
+        inv = verdicts.get(cid)
         scored = [v["cvss_score"] for v in vs if v.get("cvss_score") is not None]
-        if scored:
+        if not vs and inv:
+            cvss, cvss_src = SUPPLY_SCORE[inv["verdict"]], f"Investigate verdict '{inv['verdict']}' (supply-chain risk, no CVE)"
+        elif scored:
             cvss, cvss_src = max(scored), "CVSS base score"
         elif any(v["severity"] in LABEL_SCORE for v in vs):
             cvss = max(LABEL_SCORE[v["severity"]] for v in vs if v["severity"] in LABEL_SCORE)
@@ -157,8 +166,9 @@ def run(state: dict) -> tuple[dict, dict]:
         E = 1.3 if kev_hits or (epss_max is not None and epss_max >= 0.1) else 1.0
         base = round(min(10.0, cvss * U * D * P * E), 1)
         mal = sorted({x for v in vs for x in [v["advisory_id"], *v["aliases"]] if x.startswith("MAL-")})
-        inv = verdicts.get(cid)
-        labels = []
+        labels = ["supply-chain risk"] if not vs else []
+        if vs and inv and inv["verdict"] == "risky":
+            labels.append("investigation: risky")
         if mal or (inv and inv["verdict"] == "malicious"):
             base, labels = 10.0, ["known malware"]
         if vs and any(not v.get("fix") for v in vs):
@@ -182,7 +192,7 @@ def run(state: dict) -> tuple[dict, dict]:
     root = Path(state["workdir"])
     known_ids = {x for v in state.get("vulnerabilities", []) for x in [v["advisory_id"], *v["aliases"]]}
     middle = sorted((r for r in risks if r["factors"]["U"] == 1.0 and band(r["base_score"]) in ("high", "medium")
-                     and "known malware" not in r["labels"]), key=lambda r: -r["base_score"])[:LLM_TOP]
+                     and "known malware" not in r["labels"] and r["advisories"]), key=lambda r: -r["base_score"])[:LLM_TOP]
     for r in risks:
         r["ai"] = {"ok": False, "reason": "not asked: outside production high/medium (rule score used)"}
     requests, flags, asked = [], {}, []
@@ -224,6 +234,9 @@ def run(state: dict) -> tuple[dict, dict]:
         r["final_score"] = 10.0 if "known malware" in r["labels"] else round(min(10.0, r["cvss"] * f["U"] * f["D"] * f["P"] * f["E"] * R), 1)
         r["formula"] = ("known malware → 10" if "known malware" in r["labels"] else
                         f"min(10, {r['cvss']} × {f['U']} × {f['D']} × {f['P']} × {f['E']} × {R}) = {r['final_score']}")
+        if "investigation: risky" in r["labels"] and r["final_score"] < RISKY_FLOOR:
+            r["final_score"] = RISKY_FLOOR
+            r["formula"] += f" → raised to {RISKY_FLOOR} (Investigate found it risky)"
         r["band"] = band(r["final_score"])
     risks.sort(key=lambda r: (BAND_ORDER[r["band"]], REACH_ORDER[r["reachability"]], -r["final_score"], r["package"] or ""))
     for n, r in enumerate(risks, 1):

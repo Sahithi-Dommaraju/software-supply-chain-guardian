@@ -240,6 +240,10 @@ def run(state: dict) -> tuple[dict, dict]:
         card["plain"] = plain_explanation(card)
         card["compatibility"] = {"jump": (ch or {}).get("jump"),
                                  "breaking_risk": card["ai"]["answer"]["breaking_risk"] if card["ai"].get("ok") else None}
+    # supply-chain risks without a CVE: nothing to upgrade to, so freeze the reviewed version and escalate
+    for r in state.get("risks", []):
+        if "supply-chain risk" in r["labels"] and "known malware" not in r["labels"]:
+            cards.append(pin_card(r, paths, root))
     # malware is never "upgraded": it gets its own card
     for r in state.get("risks", []):
         if "known malware" in r["labels"]:
@@ -262,6 +266,34 @@ def run(state: dict) -> tuple[dict, dict]:
                     + (f"; {len(errors)} could not be planned" if errors else ""),
     }
     return {"fixes": cards}, public
+
+
+def pin_card(r: dict, paths: dict, root: Path) -> dict:
+    path = paths.get(r["component"]) or []
+    project_path = path[1].removeprefix("project:") if len(path) > 1 else "."
+    manifest = (root / project_path / "package.json").relative_to(root).as_posix()
+    inv = r.get("investigation") or {}
+    score = r["final_score"]
+    return {
+        "id": hashlib.sha1(f"fix|{r['component']}".encode()).hexdigest()[:12], "risk_id": r["id"], "rank": r["rank"],
+        "package": r["package"], "version": r["version"], "band": r["band"], "action": "pin",
+        "title": f"Pin {r['package']} to the reviewed version {r['version']} and escalate for security review",
+        "change": {"package": r["package"], "from": r["version"], "to": r["version"], "spec_from": None,
+                   "spec_to": r["version"], "field": "overrides", "manifest": manifest, "jump": "none"},
+        "patch": f'--- {manifest}\n+++ {manifest}\n+  "overrides": {{\n+    "{r["package"]}": "{r["version"]}"\n+  }},',
+        "rollback": {"version": r["version"], "how": f'Remove the "{r["package"]}" entry from "overrides" in {manifest}.'},
+        "advisories_removed": [], "cves_removed": [], "remaining": [], "score_before": score, "score_after": score,
+        "band_after": r["band"], "evidence": {"investigation": inv.get("verdict")},
+        "ai": {"ok": False, "reason": "no upgrade to review: supply-chain risk without a CVE"},
+        "compatibility": {"jump": "none", "breaking_risk": "low"},
+        "packages": [{"package": r["package"], "version": r["version"], "band": r["band"],
+                      "score_before": score, "score_after": score}],
+        "plain": {"source": "rule", "text":
+                  f"The Investigation agent found that {r['package']} {r['version']} does risky things when it is "
+                  "installed (see the Investigation tab for the exact lines). There is no known vulnerability to "
+                  "patch, so this pins it to the exact version that was checked, so a new, unreviewed release "
+                  "cannot slip in, and flags it for a security review. The risk is frozen, not removed."},
+    }
 
 
 def plain_explanation(card: dict) -> dict:
