@@ -129,6 +129,7 @@ def delete(scan_id: str) -> None:
     with _lock:
         _db.execute("DELETE FROM findings WHERE scan_id=?", (scan_id,))
         _db.execute("DELETE FROM decisions WHERE scan_id=?", (scan_id,))
+        _db.execute("DELETE FROM validations WHERE scan_id=?", (scan_id,))
         _db.execute("DELETE FROM scans WHERE id=?", (scan_id,))
         _db.commit()
 
@@ -170,3 +171,27 @@ def decisions(scan_id: str) -> dict[str, dict]:
                            (scan_id,)).fetchall()
     keys = ("card_id", "decision", "decided_by", "note", "decided_at")
     return {r[0]: dict(zip(keys, r)) for r in rows}
+
+
+# ---------------------------------------------------------------- Validate: one row per approved fix card
+_db.execute("CREATE TABLE IF NOT EXISTS validations (scan_id TEXT, card_id TEXT, status TEXT, data TEXT,"
+            " updated_at REAL, PRIMARY KEY (scan_id, card_id))")
+# a validation cut off by a restart will never finish
+for _sid, _cid, _raw in _db.execute("SELECT scan_id, card_id, data FROM validations WHERE status IN ('queued','running')").fetchall():
+    _d = json.loads(_raw)
+    _d.update(status="error", reason="Interrupted: the server restarted during validation. Run it again.")
+    _db.execute("UPDATE validations SET status='error', data=? WHERE scan_id=? AND card_id=?", (json.dumps(_d), _sid, _cid))
+_db.commit()
+
+
+def save_validation(scan_id: str, card_id: str, record: dict) -> None:
+    with _lock:
+        _db.execute("INSERT OR REPLACE INTO validations VALUES (?,?,?,?,?)",
+                    (scan_id, card_id, record["status"], json.dumps(record), time.time()))
+        _db.commit()
+
+
+def validations(scan_id: str) -> dict[str, dict]:
+    with _lock:
+        rows = _db.execute("SELECT card_id, data FROM validations WHERE scan_id=?", (scan_id,)).fetchall()
+    return {r[0]: json.loads(r[1]) for r in rows}

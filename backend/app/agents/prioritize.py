@@ -199,6 +199,8 @@ def run(state: dict) -> tuple[dict, dict]:
                      and "known malware" not in r["labels"] and r["advisories"]), key=lambda r: -r["base_score"])[:LLM_TOP]
     for r in risks:
         r["ai"] = {"ok": False, "reason": "not asked: outside production high/medium (rule score used)"}
+    if state.get("no_llm"):  # Validate's rescan: rules only, no AI calls
+        middle = []
     requests, flags, asked = [], {}, []
     for r in middle:
         names = sorted({r["package"], (r["controlled_by"] or "").rsplit("@", 1)[0]} - {""})
