@@ -320,3 +320,4 @@ button.reject { background: var(--bad); color: #2a0606; }
 .explain p { margin: 0; font-size: 14.5px; line-height: 1.55; }
 .details-toggle { margin-left: auto; font-family: inherit !important; font-size: 13px !important; }
 .fix-details { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 6px; }
+.score-move { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }

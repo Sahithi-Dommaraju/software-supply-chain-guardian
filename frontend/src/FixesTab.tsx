@@ -43,8 +43,13 @@ function Card({ c, scanId, decision, onDecided }: { c: FixCard; scanId: string; 
     <section className={`card fixcard ${decision?.decision ?? ''}`}>
       <div className="fix-head">
         <h2>{c.title}</h2>
-        <div className="score-move" title="Risk score before → after this fix">
-          <span className={`sev ${c.band}`}>{c.score_before.toFixed(1)}</span> → <span className={`sev ${c.band_after ?? 'low'}`}>{c.score_after.toFixed(1)}</span>
+        <div className="score-move" title="Risk score from Prioritized risks, before → after this fix">
+          {(c.packages ?? [{ package: c.package, version: c.version, band: c.band, score_before: c.score_before, score_after: c.score_after }]).map((p) => (
+            <div key={p.package + p.version}>
+              <span className="mono small">{p.package} {p.version}</span>{' '}
+              <span className={`sev ${p.band}`}>{p.score_before.toFixed(1)}</span> → <span className="sev low">{p.score_after.toFixed(1)}</span>
+            </div>
+          ))}
         </div>
       </div>
 

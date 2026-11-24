@@ -131,6 +131,7 @@ export interface FixCard {
   evidence: { registry?: string[]; changelog?: string }; usage_snippets?: Snippet[]
   ai: AiResult; compatibility: { jump: string | null; breaking_risk: string | null }
   plain?: { text: string; source: 'AI' | 'rule' }
+  packages?: { package: string; version: string; band: string; score_before: number; score_after: number }[]
 }
 
 export interface Decision { card_id: string; decision: 'approved' | 'rejected'; decided_by: string; note: string; decided_at: string }

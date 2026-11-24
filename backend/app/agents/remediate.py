@@ -215,6 +215,9 @@ def run(state: dict) -> tuple[dict, dict]:
         except Exception as e:  # registry down etc.: keep going, say which card is missing
             errors.append({"package": r["package"], "error": f"{type(e).__name__}: {str(e)[:200]}"})
             continue
+        # each vulnerable package keeps its own score from Prioritize, also after cards are merged
+        card["packages"] = [{"package": card["package"], "version": card["version"], "band": card["band"],
+                             "score_before": card["score_before"], "score_after": card["score_after"]}]
         cards.append(card)
     cards = merge_same_change(cards)  # merge first, so the AI reviews each change once
     requests = []
@@ -241,6 +244,8 @@ def run(state: dict) -> tuple[dict, dict]:
                              "rank": r["rank"], "package": r["package"], "version": r["version"], "band": "critical",
                              "action": "remove", "title": f"Remove {r['package']}@{r['version']} (known malware)",
                              "score_before": 10.0, "score_after": 0.0, "advisories_removed": [a["id"] for a in r["advisories"]],
+                             "packages": [{"package": r["package"], "version": r["version"], "band": "critical",
+                                           "score_before": 10.0, "score_after": 0.0}],
                              "cves_removed": [], "remaining": [], "change": None, "patch": None,
                              "rollback": None, "ai": {"ok": False, "reason": "no AI for malware removal"},
                              "compatibility": {"jump": None, "breaking_risk": None}, "evidence": {},
@@ -293,8 +298,9 @@ def merge_same_change(cards: list) -> list:
                           "compatibility", "plain"):
                     if k in c:
                         first[k] = c[k]
-                first["score_before"] = max(first["score_before"], c["score_before"])
-            first["score_after"] = max(first["score_after"], c["score_after"])
+            first["packages"] = first["packages"] + c["packages"]
+            first["score_before"] = max(p["score_before"] for p in first["packages"])  # card = its worst package
+            first["score_after"] = max(p["score_after"] for p in first["packages"])
             first.setdefault("also_fixes", []).append(f"{c['package']}@{c['version']}")
             first["advisories_removed"] = sorted(set(first["advisories_removed"]) | set(c["advisories_removed"]))
             first["cves_removed"] = sorted(set(first["cves_removed"]) | set(c["cves_removed"]))
